@@ -2,37 +2,34 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <sstream>   
 
-/*
-
-由EBNF实现AST：
-CompUnit  ::= FuncDef;
-FuncDef   ::= FuncType IDENT "(" ")" Block;
-FuncType  ::= "int";
-Block     ::= "{" Stmt "}";
-Stmt      ::= "return" Number ";";
-Number    ::= INT_CONST;
-
-*/
 
 // 所有 AST 的基类
+struct IRContext { int id = 0; };
+static IRContext g_ir;
+static std::string g_last_val;   
+
+
+static std::string new_tmp() {
+  return "%" + std::to_string(g_ir.id++);
+}
+
+
 class BaseAST {
  public:
   virtual ~BaseAST() = default;
   virtual void Dump() const = 0;
+  virtual void IR(std::ostream &out) const  = 0; 
 };
 
 // CompUnit 是 BaseAST
 class CompUnitAST : public BaseAST {
  public:
-  // 用智能指针管理对象
   std::unique_ptr<BaseAST> func_def;
 
-   void Dump() const override {
-    std::cout << "CompUnitAST { ";
-    func_def->Dump();
-    std::cout << " }";
-  }
+    void Dump() const override;
+    void IR(std::ostream &out) const override;
 };
 
 // FuncDef 也是 BaseAST
@@ -42,13 +39,16 @@ class FuncDefAST : public BaseAST {
   std::string ident;
   std::unique_ptr<BaseAST> block;
 
-    void Dump() const override {
-    std::cout << "FuncDefAST { ";
-    func_type->Dump();
-    std::cout << ", " << ident << ", ";
-    block->Dump();
-    std::cout << " }";
-    }
+    void Dump() const override;
+    void IR(std::ostream &out) const override;
+};
+
+class BlockAST: public BaseAST{
+    public:
+    std::unique_ptr<BaseAST> stmt;
+
+    void Dump() const override;
+    void IR(std::ostream &out) const override;
 };
 
 class FuncTypeAST : public BaseAST{
@@ -56,10 +56,8 @@ class FuncTypeAST : public BaseAST{
     std::string type;
     FuncTypeAST(std::string t) : type(std::move(t)) {}
 
-    void Dump() const override{
-        std::cout<<"FuncTypeAST { ";
-        std::cout<<type<<" }";
-    }
+    void Dump() const override;
+    void IR(std::ostream &out) const override;
 };
 
 class NumberAST:public BaseAST{
@@ -67,39 +65,47 @@ class NumberAST:public BaseAST{
     int value;
     NumberAST(int v) : value(v) {}
 
-    void Dump() const override{
-        std::cout<<"NumberAST : ";
-        std::cout<<value;
-    }
+    void Dump() const override;
+    void IR(std::ostream &out) const override;
 };
 
 class StmtAST :public BaseAST{
     public:
+    std::unique_ptr<BaseAST> Exp;
     ~StmtAST() override = default;
 
-    void Dump() const override{
-        std::cout<<" StmtAST "; 
-    }
+    void Dump() const override;
+    void IR(std::ostream &out) const override;
 };
 
-class ReturnStmtAST :public StmtAST{
+class ExpAST :public BaseAST{
     public:
-    std::unique_ptr<BaseAST> value;
+    std::unique_ptr<BaseAST> UnaryExp;
+    ~ExpAST() override = default;
 
-    void Dump() const override{
-        std::cout<<" Return ";
-        value->Dump();
-    }
+    void Dump() const override;
+    void IR(std::ostream &out) const override;
 };
 
-class BlockAST: public BaseAST{
+class PrimaryExpAST :public BaseAST{
     public:
-    std::unique_ptr<BaseAST> stmt;
+    std::unique_ptr<BaseAST> Exp; // "(" Exp ")"
+    std::unique_ptr<BaseAST> Number; // Number
+    ~PrimaryExpAST() override = default;
 
-    void Dump() const override{
-        std::cout<<"BlockAST:{";
-        stmt->Dump();
-        std::cout<<"}";
-    }
+    void Dump() const override;
+    void IR(std::ostream &out) const override;
 };
-// ...
+
+class UnaryExpAST :public BaseAST{
+    public:
+    std::unique_ptr<BaseAST> PrimaryExp; // PrimaryExp
+    char UnaryOp; // UnaryOp
+    std::unique_ptr<BaseAST> UnaryExp; // UnaryExp
+    ~UnaryExpAST() override = default;
+
+    void Dump() const override;
+    void IR(std::ostream &out) const override;
+};
+
+

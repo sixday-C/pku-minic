@@ -1,76 +1,122 @@
 #include "../include/ir_gen.hpp"
 #include "../include/ir.hpp"
 #include "../include/ast.hpp"
-
 #include <cassert>
-#include <utility>
 
-// Generate IR from AST
+// 简化版 IR 生成器，类似原来的 AST 方式
 std::unique_ptr<Program> IRGenerator::Generate(const CompUnitAST& ast) {
-  program = std::make_unique<Program>();
-  visit(ast);
-  return std::move(program);  // 或 return program;
+    program = std::make_unique<Program>();
+    temp_counter = 0;
+    
+    // 创建函数
+    auto* func_def = static_cast<const FuncDefAST*>(ast.func_def.get());
+    auto func = std::make_unique<Function>(func_def->ident);
+    auto bb = std::make_unique<BasicBlock>("entry");
+    
+    current_block = bb.get();
+    
+    // 处理 return 语句 - 找到表达式
+    auto* block = static_cast<const BlockAST*>(func_def->block.get());
+    auto* stmt = static_cast<const StmtAST*>(block->stmt.get());
+    
+    // 生成表达式 IR，last_value 保存最终结果
+    generate_expr(*stmt->Exp);
+    
+    // 创建 return 指令
+    if (last_value.empty()) {
+        // 这是常量，需要重新获取
+        if (auto* exp = dynamic_cast<const ExpAST*>(stmt->Exp.get())) {
+            if (auto* unary = dynamic_cast<const UnaryExpAST*>(exp->UnaryExp.get())) {
+                if (auto* primary = dynamic_cast<const PrimaryExpAST*>(unary->PrimaryExp.get())) {
+                    if (auto* num = dynamic_cast<const NumberAST*>(primary->Number.get())) {
+                        auto ret = std::make_unique<Return>(std::make_unique<Integer>(num->value));
+                        current_block->add(std::move(ret));
+                    }
+                }
+            }
+        }
+    } else {
+        // 这是临时变量，直接传递变量名
+        auto ret = std::make_unique<Return>(last_value);
+        current_block->add(std::move(ret));
+    }
+    
+    func->add(std::move(bb));
+    program->add(std::move(func));
+    return std::move(program);
 }
 
-// CompUnit ::= FuncDef;
-void IRGenerator::visit(const CompUnitAST& n) {
-  auto* f = dynamic_cast<FuncDefAST*>(n.func_def.get());
-  assert(f && "CompUnit.func_def must be FuncDefAST");
-  visit(*f);
+// 生成表达式 IR - 超简单版本，类似原来的 AST 方式
+void IRGenerator::generate_expr(const BaseAST& expr) {
+    // NumberAST - 常量
+    if (auto* num = dynamic_cast<const NumberAST*>(&expr)) {
+        last_value = std::to_string(num->value);
+        return;
+    }
+    
+    // ExpAST - 直接处理 UnaryExp
+    if (auto* exp = dynamic_cast<const ExpAST*>(&expr)) {
+        generate_expr(*exp->UnaryExp);
+        return;
+    }
+    
+    // PrimaryExpAST - 处理 Number 或 (Exp)
+    if (auto* primary = dynamic_cast<const PrimaryExpAST*>(&expr)) {
+        if (primary->Number) {
+            generate_expr(*primary->Number);
+            return;
+        }
+        if (primary->Exp) {
+            generate_expr(*primary->Exp);
+            return;
+        }
+    }
+    
+    // UnaryExpAST - 核心处理
+    if (auto* unary = dynamic_cast<const UnaryExpAST*>(&expr)) {
+        if (unary->PrimaryExp) {
+            generate_expr(*unary->PrimaryExp);
+            return;
+        }
+        
+        if (unary->UnaryOp != '\0' && unary->UnaryExp) {
+            // 先计算右操作数
+            generate_expr(*unary->UnaryExp);
+            std::string rhs = last_value;
+            
+            if (unary->UnaryOp == '!') {
+                // %t = eq rhs, 0
+                std::string temp = new_temp();
+                auto binary = std::make_unique<Binary>(Binary::EQ,
+                    std::make_unique<Integer>(std::stoi(rhs)),
+                    std::make_unique<Integer>(0));
+                binary->name = temp;
+                current_block->add(std::move(binary));
+                last_value = temp;
+                return;
+            }
+            
+            if (unary->UnaryOp == '-') {
+                // %t = sub 0, rhs
+                std::string temp = new_temp();
+                auto binary = std::make_unique<Binary>(Binary::SUB,
+                    std::make_unique<Integer>(0),
+                    std::make_unique<Integer>(std::stoi(rhs)));
+                binary->name = temp;
+                current_block->add(std::move(binary));
+                last_value = temp;
+                return;
+            }
+            
+            if (unary->UnaryOp == '+') {
+                // +x = x，last_value 已经是 rhs
+                return;
+            }
+        }
+    }
 }
 
-// FuncDef ::= FuncType IDENT "(" ")" Block;
-void IRGenerator::visit(const FuncDefAST& n) {
-  // 1) 建函数
-  auto func = std::make_unique<Function>(n.ident);
-
-  // 2) 建 entry 基本块，并设为“当前写入点”
-  auto bb = std::make_unique<BasicBlock>("entry");
-  current_func  = func.get();
-  current_block = bb.get();
-
-  // 3) 函数体
-  auto* b = dynamic_cast<BlockAST*>(n.block.get());
-  assert(b && "FuncDef.block must be BlockAST");
-  visit(*b);
-
-  // 4) 装订
-  func->add(std::move(bb));
-  program->add(std::move(func));
-}
-
-// Block ::= "{" Stmt "}";
-void IRGenerator::visit(const BlockAST& n) {
-  auto* s = dynamic_cast<StmtAST*>(n.stmt.get());
-  assert(s && "Block.stmt must be StmtAST");
-  visit(*s);
-}
-
-// Stmt ::= "return" Number ";";
-void IRGenerator::visit(const StmtAST& n) {
-  // 只有一种语句：ReturnStmtAST
-  if (auto* r = dynamic_cast<const ReturnStmtAST*>(&n)) {
-    visit(*r);
-    return;
-  }
-  assert(false && "Only ReturnStmtAST supported for now");
-}
-
-// ReturnStmtAST(value)
-void IRGenerator::visit(const ReturnStmtAST& n) {
-  assert(current_block && "current_block not set");
-
-  // value 是 BaseAST*，但我们现在只支持 Number
-  auto v = emit(*n.value);          // -> unique_ptr<Value> (ConstInt)
-  auto ret = std::make_unique<Return>(std::move(v));
-  current_block->add(std::move(ret));
-}
-
-// 目前只支持 NumberAST → ConstInt
-std::unique_ptr<Value> IRGenerator::emit(const BaseAST& n) {
-  if (auto* num = dynamic_cast<const NumberAST*>(&n)) {
-    return std::make_unique<ConstInt>(num->value);
-  }
-  assert(false && "Only NumberAST is supported in expressions");
-  return nullptr;
+// 生成临时变量名
+std::string IRGenerator::new_temp() {
+    return "%" + std::to_string(temp_counter++);
 }

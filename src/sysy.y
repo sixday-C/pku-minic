@@ -41,8 +41,10 @@ using namespace std;
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
+
 // 非终结符的类型定义
 %type <ast_val> CompUnit FuncDef FuncType Block Stmt Number
+%type <ast_val> Exp PrimaryExp UnaryExp 
 
 %%
 
@@ -77,14 +79,60 @@ Block
   }
   ;
 
+
+
 Stmt
-  : RETURN Number ';' {
-    auto s=new ReturnStmtAST();
-    s->value=std::unique_ptr<BaseAST>($2);
+  : RETURN Exp ';' {
+    auto s=new StmtAST();
+    s->Exp=std::unique_ptr<BaseAST>($2);
     $$=s;
   }
-  ;
+;
 
+Exp
+  : UnaryExp {
+    auto e=new ExpAST();
+    e->UnaryExp=std::unique_ptr<BaseAST>($1);
+    $$=e;
+  }
+  ;
+PrimaryExp
+  : '(' Exp ')' {
+    auto p=new PrimaryExpAST();
+    p->Exp=std::unique_ptr<BaseAST>($2);
+    $$ = p;
+  }
+  | Number {
+    auto p=new PrimaryExpAST();
+    p->Number=std::unique_ptr<BaseAST>($1);
+    $$ = p;
+  }
+UnaryExp
+  : PrimaryExp {
+    auto u=new UnaryExpAST();
+    u->PrimaryExp=std::unique_ptr<BaseAST>($1);
+    u->UnaryOp = '\0';  // 没有一元操作符时设为空字符
+    $$=u;
+  }
+  | '+' UnaryExp {
+    auto u=new UnaryExpAST();
+    u->UnaryOp = '+';
+    u->UnaryExp=std::unique_ptr<BaseAST>($2);
+    $$=u;
+  }
+  | '-' UnaryExp {
+    auto u=new UnaryExpAST();
+    u->UnaryOp = '-';
+    u->UnaryExp=std::unique_ptr<BaseAST>($2);
+    $$=u; 
+  }
+  | '!' UnaryExp {
+    auto u=new UnaryExpAST();
+    u->UnaryOp = '!';
+    u->UnaryExp=std::unique_ptr<BaseAST>($2);
+    $$=u; 
+  }
+;
 Number
   : INT_CONST {
     $$ = new NumberAST($1);

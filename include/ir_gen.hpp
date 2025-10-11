@@ -1,27 +1,31 @@
 #pragma once
 #include <memory>
-#include "ast.hpp"  // 你上面这份 AST 头
-#include "ir.hpp"   // 你上面这份 IR 头
+#include "ast.hpp"  // AST 节点定义
+#include "ir.hpp"   // IR 节点定义
 
+// IR 生成器：将 AST 转换为 IR
+// 采用直接递归方式遍历 AST，为每种节点类型提供对应的处理函数
+// 支持一元表达式生成（+, -, !）和常量表达式
 class IRGenerator {
 public:
+  // 主入口：将 AST 转换为 IR Program
   std::unique_ptr<Program> Generate(const CompUnitAST& ast);
-//接收ast指针,返回program指针
+
 private:
-  // 非拥有的“当前写入位置”
+  // 当前写入上下文
   Function*   current_func  = nullptr;
   BasicBlock* current_block = nullptr;
-
-  // 拥有 Program
+  
+  // 临时变量计数器
+  int temp_counter = 0;
+  
+  // 生成的 Program
   std::unique_ptr<Program> program;
 
-  // 逐层访问（只写到你现在需要的）
-  void visit(const CompUnitAST& n);
-  void visit(const FuncDefAST& n);
-  void visit(const BlockAST& n);
-  void visit(const StmtAST& n);
-  void visit(const ReturnStmtAST& n);
-
-  // 表达式→Value（现在只支持 Number）
-  std::unique_ptr<Value> emit(const BaseAST& n);
+  // 简化的表达式生成，类似原来的 AST 方式
+  void generate_expr(const BaseAST& expr);  // 生成表达式 IR，结果保存在 last_value
+  
+  // 辅助函数
+  std::string new_temp();  // 生成新的临时变量名 %0, %1, %2...
+  std::string last_value;  // 保存最后生成的值（临时变量名或常量值）
 };

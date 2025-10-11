@@ -24,7 +24,7 @@ void RvGen::gen_block(const BasicBlock& bb) {
   for (const auto& inst : bb.insts) {
     // 现在仅支持 Return 指令
     if (auto* ret = dynamic_cast<Return*>(inst.get())) {
-      if (ret->val) eval_to_a0(*ret->val);  // 把返回值放到 a0
+      if (ret->value) eval_to_a0(*ret->value);  // 把返回值放到 a0
       os_ << "  ret\n";
     }
     // 以后新增其它指令就在这里扩分支
