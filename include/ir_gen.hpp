@@ -28,4 +28,5 @@ private:
   // 辅助函数
   std::string new_temp();  // 生成新的临时变量名 %0, %1, %2...
   std::string last_value;  // 保存最后生成的值（临时变量名或常量值）
+  bool is_constant = false; // 标记 last_value 是否为常量
 };

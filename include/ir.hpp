@@ -21,6 +21,18 @@ public:
     void dump(std::ostream& os) const override;
 };
 
+// 变量类 - 用于表示临时变量
+class Variable : public Value {
+public:
+    std::string name;
+    
+    explicit Variable(const std::string& n) : name(n) {}
+    
+    void dump(std::ostream& os) const override {
+        os << name;
+    }
+};
+
 // 常量整数类 - 与 Integer 功能类似，用于 RvGen
 class ConstInt : public Value {
 public:

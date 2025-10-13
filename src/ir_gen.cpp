@@ -22,9 +22,10 @@ std::unique_ptr<Program> IRGenerator::Generate(const CompUnitAST& ast) {
     // 生成表达式 IR，last_value 保存最终结果
     generate_expr(*stmt->Exp);
     
+    
+    // 防止程序崩溃?我也不知道ai写的这段代码有任何有用的意思没有
     // 创建 return 指令
     if (last_value.empty()) {
-        // 这是常量，需要重新获取
         if (auto* exp = dynamic_cast<const ExpAST*>(stmt->Exp.get())) {
             if (auto* unary = dynamic_cast<const UnaryExpAST*>(exp->UnaryExp.get())) {
                 if (auto* primary = dynamic_cast<const PrimaryExpAST*>(unary->PrimaryExp.get())) {
@@ -51,6 +52,7 @@ void IRGenerator::generate_expr(const BaseAST& expr) {
     // NumberAST - 常量
     if (auto* num = dynamic_cast<const NumberAST*>(&expr)) {
         last_value = std::to_string(num->value);
+        is_constant = true;  // 标记为常量
         return;
     }
     
@@ -83,33 +85,46 @@ void IRGenerator::generate_expr(const BaseAST& expr) {
             // 先计算右操作数
             generate_expr(*unary->UnaryExp);
             std::string rhs = last_value;
+            bool rhs_is_const = is_constant;
             
             if (unary->UnaryOp == '!') {
-                // %t = eq rhs, 0
                 std::string temp = new_temp();
+                std::unique_ptr<Value> lhs_val;
+                if (rhs_is_const) {
+                    lhs_val = std::make_unique<Integer>(std::stoi(rhs));
+                } else {
+                    lhs_val = std::make_unique<Variable>(rhs);
+                }
                 auto binary = std::make_unique<Binary>(Binary::EQ,
-                    std::make_unique<Integer>(std::stoi(rhs)),
+                    std::move(lhs_val),
                     std::make_unique<Integer>(0));
                 binary->name = temp;
                 current_block->add(std::move(binary));
                 last_value = temp;
+                is_constant = false;  // 结果是临时变量
                 return;
             }
             
             if (unary->UnaryOp == '-') {
-                // %t = sub 0, rhs
                 std::string temp = new_temp();
+                std::unique_ptr<Value> rhs_val;
+                if (rhs_is_const) {
+                    rhs_val = std::make_unique<Integer>(std::stoi(rhs));
+                } else {
+                    rhs_val = std::make_unique<Variable>(rhs);
+                }
                 auto binary = std::make_unique<Binary>(Binary::SUB,
                     std::make_unique<Integer>(0),
-                    std::make_unique<Integer>(std::stoi(rhs)));
+                    std::move(rhs_val));
                 binary->name = temp;
                 current_block->add(std::move(binary));
                 last_value = temp;
+                is_constant = false;  // 结果是临时变量
                 return;
             }
             
             if (unary->UnaryOp == '+') {
-                // +x = x，last_value 已经是 rhs
+                // +x = x，last_value 和 is_constant 保持不变
                 return;
             }
         }

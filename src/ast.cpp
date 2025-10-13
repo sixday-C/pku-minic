@@ -1,5 +1,10 @@
 #include "../include/ast.hpp"
 
+// 静态函数定义，仅在此文件中使用
+static std::string new_tmp() {
+  return "%" + std::to_string(g_ir.id++);
+}
+
 void CompUnitAST::Dump() const {
     std::cout << "CompUnitAST { \n";
     func_def->Dump();

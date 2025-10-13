@@ -11,11 +11,6 @@ static IRContext g_ir;
 static std::string g_last_val;   
 
 
-static std::string new_tmp() {
-  return "%" + std::to_string(g_ir.id++);
-}
-
-
 class BaseAST {
  public:
   virtual ~BaseAST() = default;
