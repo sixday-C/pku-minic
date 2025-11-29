@@ -55,9 +55,8 @@ int main(int argc, const char *argv[]) {
     std::cout << "Successfully generated Koopa IR to " << output << std::endl;
   } 
   else if (mode == "-riscv") {
-    RvGen riscv_generator;
-    auto rv_program = riscv_generator.generate(*koopa_program);
-    emitProgram(*rv_program, output_file);
+    RvGen riscv_generator(output_file);
+    riscv_generator.generate(*koopa_program);
     std::cout << "Successfully generated RISCV assembly to " << output << std::endl;
   }
   else {

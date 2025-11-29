@@ -1,12 +1,32 @@
 #include "../include/rv.hpp"
 #include <iostream>
 
-// ---- 各种指令的输出实现 ----
+// ============================================
+// ---- 加载和移动类指令的输出实现 ----
+// ============================================
 
 // 加载立即数指令：li rd, imm
 void RVLi::emit(std::ostream& os) const {
     os << "  li " << rd.name << ", " << imm.v;
 }
+
+// 移动指令：mv rd, rs 
+void RVMv::emit(std::ostream& os) const {
+    os << "  mv " << rd.name << ", " << rs.name;
+}
+
+// ============================================
+// ---- 控制转移类指令的输出实现 ----
+// ============================================
+
+// 返回伪指令：ret → jr ra
+void RVRet::emit(std::ostream& os) const {
+    os << "  ret";
+}
+
+// ============================================
+// ---- 运算类指令的输出实现 ----
+// ============================================
 
 // 立即数加法指令：addi rd, rs, imm  
 void RVAddi::emit(std::ostream& os) const {
@@ -23,32 +43,24 @@ void RVSub::emit(std::ostream& os) const {
     os << "  sub " << rd.name << ", " << rs1.name << ", " << rs2.name;
 }
 
-// 异或运算指令：xor rd, rs1, rs2
-void RVXor::emit(std::ostream& os) const {
-    os << "  xor " << rd.name << ", " << rs1.name << ", " << rs2.name;
-}
-
-// 移动指令：mv rd, rs 
-void RVMv::emit(std::ostream& os) const {
-    os << "  mv " << rd.name << ", " << rs.name;
-}
-
 // 取负伪指令：neg rd, rs → sub rd, x0, rs
 void RVNeg::emit(std::ostream& os) const {
     os << "  sub " << rd.name << ", x0, " << rs.name;
 }
 
-// 等于零伪指令：seqz rd, rs → sltiu rd, rs, 1
+// 异或运算指令：xor rd, rs1, rs2
+void RVXor::emit(std::ostream& os) const {
+    os << "  xor " << rd.name << ", " << rs1.name << ", " << rs2.name;
+}
+
+// 等于零伪指令：seqz rd, rs
 void RVSeqz::emit(std::ostream& os) const {
     os << "  seqz " << rd.name << ", " << rs.name;
 }
 
-// 返回伪指令：ret → jr ra
-void RVRet::emit(std::ostream& os) const {
-    os << "  ret";
-}
-
+// ============================================
 // ---- 顶层输出函数实现 ----
+// ============================================
 
 // 输出基本块：先输出标签，然后输出所有指令
 void emitBlock(const RVBlock& bb, std::ostream& os) {

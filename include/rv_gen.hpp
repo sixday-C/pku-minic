@@ -1,29 +1,34 @@
 #pragma once
 #include <memory>
+#include <ostream>
 #include "ir.hpp"   // Koopa IR 定义
-#include "rv.hpp"   // RISC-V 内存结构定义
 #include <map>
 
-// RISC-V 代码生成器：将 Koopa IR 转换为 RISC-V 内存结构
+// RISC-V 代码生成器：将 Koopa IR 直接输出为 RISC-V 汇编文本
 class RvGen {
 public:
-  RvGen() : reg_counter_(0) {}
+  explicit RvGen(std::ostream& os) : os_(os), reg_counter_(0) {}
   
-  // 主入口：生成整个程序的 RISC-V 内存结构
-  std::unique_ptr<RVProg> generate(const Program& p);
+  // 主入口：生成整个程序的 RISC-V 汇编
+  void generate(const Program& p);
 
 private:
-  // 生成函数的 RISC-V 结构
-  std::unique_ptr<RVFunc> gen_function(const Function& f);
+  std::ostream& os_;  // 输出流
   
-  // 生成基本块的 RISC-V 结构
-  std::unique_ptr<RVBlock> gen_block(const BasicBlock& bb);
+  // 生成函数的汇编
+  void gen_function(const Function& f);
   
-  // 处理二元运算指令，生成相应的 RISC-V 指令
-  void gen_binary(const Binary& binary, std::vector<std::unique_ptr<RVInst>>& insts);
+  // 生成基本块的汇编
+  void gen_block(const BasicBlock& bb);
   
-  // 处理返回指令，生成相应的 RISC-V 指令
-  void gen_return(const Return& ret, std::vector<std::unique_ptr<RVInst>>& insts);
+  // 处理二元运算指令，输出相应的 RISC-V 指令
+  void gen_binary(const Binary& binary);
+  
+  // 处理返回指令，输出相应的 RISC-V 指令
+  void gen_return(const Return& ret);
+  
+  // 辅助函数：将 Value 加载到寄存器（可能输出 li 指令）
+  std::string ensure_in_reg(const Value& v);
   
   // 辅助函数：获取临时变量对应的寄存器名
   std::string get_reg_name(const std::string& temp_var);

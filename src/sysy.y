@@ -63,7 +63,7 @@ FuncDef
     ast->ident = *unique_ptr<string>($2);
     ast->block = unique_ptr<BaseAST>($5);
     $$ = ast;
-  }
+  } 
   ;
 
 // 同上, 不再解释

@@ -1,6 +1,5 @@
-#include "../include/IR.hpp"
+#include "../include/ir.hpp"
 
-// 整数字面量：直接输出数值
 void Integer::dump(std::ostream& os) const {
     os << value;
 }

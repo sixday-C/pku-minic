@@ -4,44 +4,27 @@
 #include <string>
 #include <ostream>
 
-// 基础 Value 类 - 所有 IR 值的基类
 class Value {
 public:
     virtual ~Value() = default;
     virtual void dump(std::ostream& os) const = 0;
 };
 
-// 整数常量类 - 用于表示字面量
 class Integer : public Value {
 public:
     int value;
-    
     explicit Integer(int v) : value(v) {}
-    
-    void dump(std::ostream& os) const override;
+    void dump(std::ostream& os) const override{
+        os << value;
+    };
 };
 
-// 变量类 - 用于表示临时变量
 class Variable : public Value {
 public:
     std::string name;
-    
     explicit Variable(const std::string& n) : name(n) {}
-    
     void dump(std::ostream& os) const override {
         os << name;
-    }
-};
-
-// 常量整数类 - 与 Integer 功能类似，用于 RvGen
-class ConstInt : public Value {
-public:
-    int v;
-    
-    explicit ConstInt(int val) : v(val) {}
-    
-    void dump(std::ostream& os) const override {
-        os << v;
     }
 };
 

@@ -71,7 +71,7 @@ class StmtAST :public BaseAST{
 
     void Dump() const override;
     void IR(std::ostream &out) const override;
-};
+};//目前只有 return 语句 
 
 class ExpAST :public BaseAST{
     public:
