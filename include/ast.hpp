@@ -3,104 +3,60 @@
 #include <memory>
 #include <string>
 #include <sstream>   
-
-
-// 所有 AST 的基类
-struct IRContext { int id = 0; };
-static IRContext g_ir;
-static std::string g_last_val;   
-
-
-class BaseAST {
- public:
-  virtual ~BaseAST() = default;
-  virtual void Dump() const = 0;
-  virtual void IR(std::ostream &out) const  = 0; 
+#include <list>
+class BaseAST{
+    public:
+        virtual ~BaseAST()=default;      
 };
 
-// CompUnit 是 BaseAST
-class CompUnitAST : public BaseAST {
+class CompUnitAST: public BaseAST {
  public:
   std::unique_ptr<BaseAST> func_def;
-
-    void Dump() const override;
-    void IR(std::ostream &out) const override;
 };
 
-// FuncDef 也是 BaseAST
-class FuncDefAST : public BaseAST {
- public:
-  std::unique_ptr<BaseAST> func_type;
-  std::string ident;
-  std::unique_ptr<BaseAST> block;
+class FuncDefAST: public BaseAST{
+    public:
+    std::unique_ptr<BaseAST> func_type;
+    std::string ident;
+    std::unique_ptr<BaseAST> block;
+};
 
-    void Dump() const override;
-    void IR(std::ostream &out) const override;
+class FuncTypeAST: public BaseAST{
+    public:
+    std::string type;
+    FuncTypeAST(std::string t):type(std::move(t)){}
 };
 
 class BlockAST: public BaseAST{
     public:
     std::unique_ptr<BaseAST> stmt;
-
-    void Dump() const override;
-    void IR(std::ostream &out) const override;
 };
 
-class FuncTypeAST : public BaseAST{
+class StmtAST: public BaseAST{
     public:
-    std::string type;
-    FuncTypeAST(std::string t) : type(std::move(t)) {}
-
-    void Dump() const override;
-    void IR(std::ostream &out) const override;
+    std::unique_ptr<BaseAST> exp;
 };
 
-class NumberAST:public BaseAST{
+class ExpAST: public BaseAST{
+    public:
+    std::unique_ptr<BaseAST> unary_exp;
+};
+
+class UnaryExpAST: public BaseAST{
+    public:
+    std::unique_ptr<BaseAST> primary_exp;
+    std::unique_ptr<BaseAST> unary_exp;
+    char unary_op; // '+', '-', '!' or '\0' 
+};
+
+class PrimaryExpAST: public BaseAST{
+    public:
+    std::unique_ptr<BaseAST> exp;
+    std::unique_ptr<BaseAST> number;
+};
+
+class NumberAST: public BaseAST{
     public:
     int value;
-    NumberAST(int v) : value(v) {}
-
-    void Dump() const override;
-    void IR(std::ostream &out) const override;
-};
-
-class StmtAST :public BaseAST{
-    public:
-    std::unique_ptr<BaseAST> Exp;
-    ~StmtAST() override = default;
-
-    void Dump() const override;
-    void IR(std::ostream &out) const override;
-};//目前只有 return 语句 
-
-class ExpAST :public BaseAST{
-    public:
-    std::unique_ptr<BaseAST> UnaryExp;
-    ~ExpAST() override = default;
-
-    void Dump() const override;
-    void IR(std::ostream &out) const override;
-};
-
-class PrimaryExpAST :public BaseAST{
-    public:
-    std::unique_ptr<BaseAST> Exp; // "(" Exp ")"
-    std::unique_ptr<BaseAST> Number; // Number
-    ~PrimaryExpAST() override = default;
-
-    void Dump() const override;
-    void IR(std::ostream &out) const override;
-};
-
-class UnaryExpAST :public BaseAST{
-    public:
-    std::unique_ptr<BaseAST> PrimaryExp; // PrimaryExp
-    char UnaryOp; // UnaryOp
-    std::unique_ptr<BaseAST> UnaryExp; // UnaryExp
-    ~UnaryExpAST() override = default;
-
-    void Dump() const override;
-    void IR(std::ostream &out) const override;
-};
-
-
+    NumberAST(int v):value(v){}
+};    
