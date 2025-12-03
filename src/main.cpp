@@ -6,9 +6,10 @@
 #include <fstream>
 #include <utility>
 #include "../include/ast.hpp"
-#include "../include/ir_gen.hpp"
+#include "../include/IRGenerator.hpp"
 #include "../include/ir.hpp"
-#include "../include/rv_gen.hpp"
+#include "../include/RISCVGenerator.hpp"
+//#include "../include/rv_gen.hpp"
 using namespace std;
 
 extern FILE *yyin;
@@ -34,7 +35,8 @@ int main(int argc, const char *argv[]) {
 
   IRGenerator generator;
   CompUnitAST* comp_unit_ast = static_cast<CompUnitAST*>(ast.get()); 
-  auto koopa_program = generator.Generate(*comp_unit_ast);
+  generator.visit(comp_unit_ast);
+  auto koopa_program = generator.getProgram();
 
   std::ofstream output_file(output);
   if (!output_file.is_open()) {
@@ -43,16 +45,17 @@ int main(int argc, const char *argv[]) {
   }
 
   if (mode == "-koopa") {
-    koopa_program->dump(output_file);
+    koopa_program->toString(output_file);
     std::cout << "Successfully generated Koopa IR to " << output << std::endl;
   } 
   else if (mode == "-riscv") {
-    RvGen riscv_generator(output_file);
-    riscv_generator.generate(*koopa_program);
+    RISCVGenerator riscv_generator;
+    std::string riscv_code = riscv_generator.generate(*koopa_program);
+    output_file << riscv_code;
     std::cout << "Successfully generated RISCV assembly to " << output << std::endl;
   }
   else {
-    std::cerr << "Error: Unkown mode " << mode << std::endl;
+    std::cerr << "Error: Unknown mode " << mode << std::endl;
     return 1;
   }
   

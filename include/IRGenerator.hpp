@@ -41,8 +41,28 @@ void visit(FuncDefAST& ast) {
     program->funcs.push_back(std::move(func));
     }
     
-    void visit(BlockAST& ast) {} 
-    void visit(StmtAST& ast) {}
+    void visit(BlockAST& ast) {
+        if(ast.stmt)
+        {
+        auto retStmt = static_cast<ReturnStmtAST*>(ast.stmt.get());
+        
+        if(retStmt)
+        {
+        visit(*retStmt);
+        }
+    }
+    } 
+    // void visit(StmtAST& ast) {
+    //     visit(*expNode);
+    // }
+    void visit(ReturnStmtAST& ast) {
+        if(ast.exp){
+            auto exp= static_cast<ExpAST*>(ast.exp.get());
+            visit(*exp);
+            auto retInst = new ReturnInst(lastVal);
+            currentBlock->addInst(retInst);
+        }
+    }
     void visit(ExpAST& ast) {
         if(ast.unary_exp){
             auto unaryExp= static_cast<UnaryExpAST*>(ast.unary_exp.get());
@@ -89,8 +109,7 @@ void visit(FuncDefAST& ast) {
         else if (ast.exp) {
             auto exp = static_cast<ExpAST*>(ast.exp.get());
             visit(*exp);
-            auto exp = static_cast<ExpAST*>(ast.exp.get());
-            visit(*exp);
+
         }
     }
     void visit(NumberAST& ast) {

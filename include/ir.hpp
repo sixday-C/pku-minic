@@ -130,4 +130,9 @@ public:
 class Program {
 public:
     std::list<std::unique_ptr<Function>> funcs;
+    void toString(std::ostream& os) const {
+        for (const auto& func : funcs) {
+            os << func->toString();
+        }
+    }
 };

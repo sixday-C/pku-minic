@@ -33,6 +33,11 @@ class BlockAST: public BaseAST{
 };
 
 class StmtAST: public BaseAST{
+   // public:
+ //   std::unique_ptr<BaseAST> exp;
+};
+
+class ReturnStmtAST: public StmtAST{
     public:
     std::unique_ptr<BaseAST> exp;
 };

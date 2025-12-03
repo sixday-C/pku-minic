@@ -83,7 +83,7 @@ Block
 
 Stmt
   : RETURN Exp ';' {
-    auto s=new StmtAST();
+    auto s=new ReturnStmtAST();
     s->exp=std::unique_ptr<BaseAST>($2);
     $$=s;
   }
