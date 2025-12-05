@@ -29,6 +29,16 @@ enum class OpType{
     Eq,
     Add,
     Sub,
+    Mul,
+    Div,
+    Mod,
+    Lt, //<
+    Gt, //>
+    Le, //<=
+    Ge, //>=
+    Ne //!=
+    ,AND // &   用来拼接&&
+    ,OR // |    用来拼接||
 };
 
 inline std::string opName(OpType op) {
@@ -37,6 +47,16 @@ inline std::string opName(OpType op) {
         case OpType::Add: return "add";
         case OpType::Sub: return "sub";
         case OpType::Ret: return "ret";
+        case OpType::Mul: return "mul";
+        case OpType::Div: return "div";
+        case OpType::Mod: return "mod";
+        case OpType::Lt: return "lt";
+        case OpType::Gt: return "gt";
+        case OpType::Le: return "le";
+        case OpType::Ge: return "ge";
+        case OpType::Ne: return "ne";
+        case OpType::AND: return "and";
+        case OpType::OR: return "or";
         default: return "unknown";
     }
 }
@@ -99,9 +119,13 @@ public:
 class BasicBlock : public Value {
 public:
     std::list<std::unique_ptr<Instruction>> insts;
+    std::list<std::unique_ptr<Value>> values; 
     BasicBlock(const std::string &n) {name=n;type=Type::Label;}
     void addInst(Instruction* inst) {
         insts.push_back(std::unique_ptr<Instruction>(inst));
+    }
+    void addValue(Value* val) {
+        values.push_back(std::unique_ptr<Value>(val));
     }
     std::string toString() const override {
         std::string result = name + ":\n";

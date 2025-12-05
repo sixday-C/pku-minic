@@ -48,6 +48,7 @@
         "iostream": "cpp",
         "__hash_table": "cpp",
         "complex": "cpp",
-        "type_traits": "cpp"
+        "type_traits": "cpp",
+        "list": "cpp"
     }
 }

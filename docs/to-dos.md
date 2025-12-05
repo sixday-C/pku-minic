@@ -6,3 +6,6 @@ fun @main(): i32 {
   %2 = sub 0, %1
   ret %2
 }
+
+"Premature optimization is the root of all evil"
+（过早优化是万恶之源）

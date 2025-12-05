@@ -44,14 +44,54 @@ class ReturnStmtAST: public StmtAST{
 
 class ExpAST: public BaseAST{
     public:
+    std::unique_ptr<BaseAST> lor_exp;
+};
+
+class MulExpAST: public BaseAST{
+    public:
     std::unique_ptr<BaseAST> unary_exp;
+    std::unique_ptr<BaseAST> mul_exp;
+    char mul_op; // '*', '/', '%' or '\0' 
+};
+
+class AddExpAST: public BaseAST{
+    public:
+    std::unique_ptr<BaseAST> mul_exp;
+    std::unique_ptr<BaseAST> add_exp;
+    char add_op; // '+', '-' or '\0' 
+};
+
+class RelExpAST: public BaseAST{
+    public:
+    std::unique_ptr<BaseAST> add_exp;
+    std::unique_ptr<BaseAST> rel_exp;
+    std::string rel_op; // "<", ">", "<=", ">=" or ""
+};
+
+class EqExpAST: public BaseAST{
+    public:
+    std::unique_ptr<BaseAST> rel_exp;
+    std::unique_ptr<BaseAST> eq_exp;
+    std::string eq_op; // "==", "!=" or ""
+};
+
+class LAndExpAST: public BaseAST{
+    public:
+    std::unique_ptr<BaseAST> eq_exp;
+    std::unique_ptr<BaseAST> land_exp;
+};
+
+class LOrExpAST: public BaseAST{
+    public:
+    std::unique_ptr<BaseAST> land_exp;
+    std::unique_ptr<BaseAST> lor_exp;
 };
 
 class UnaryExpAST: public BaseAST{
     public:
     std::unique_ptr<BaseAST> primary_exp;
     std::unique_ptr<BaseAST> unary_exp;
-    char unary_op; // '+', '-', '!' or '\0' 
+    char unary_op; // '+', '-', '!' or '\0'
 };
 
 class PrimaryExpAST: public BaseAST{

@@ -64,9 +64,184 @@ void visit(FuncDefAST& ast) {
         }
     }
     void visit(ExpAST& ast) {
-        if(ast.unary_exp){
+        if(ast.lor_exp){
+            auto lorExp= static_cast<LOrExpAST*>(ast.lor_exp.get());
+            visit(*lorExp);
+        }
+    }
+    
+    void visit(RelExpAST & ast){
+        if(ast.add_exp && !ast.rel_exp){
+            auto addExp= static_cast<AddExpAST*>(ast.add_exp.get());
+            visit(*addExp);
+            return;
+        }
+        else if(ast.rel_exp && ast.add_exp){
+            visit(*static_cast<RelExpAST*>(ast.rel_exp.get()));
+            Value* left = lastVal;
+            visit(*static_cast<AddExpAST*>(ast.add_exp.get()));
+            Value* right = lastVal;
+
+            Instruction* inst = nullptr;
+            if (ast.rel_op == "<") {
+                inst = new Binary(OpType::Lt, left, right, newTemp());
+            } 
+            else if (ast.rel_op == ">") {
+                inst = new Binary(OpType::Gt, left, right, newTemp());
+            }
+            else if (ast.rel_op == "<=") {
+                inst = new Binary(OpType::Le, left, right, newTemp());
+            }
+            else if (ast.rel_op == ">=") {
+                inst = new Binary(OpType::Ge, left, right, newTemp());
+            }
+
+            if (inst) {
+                currentBlock->addInst(inst);
+                lastVal = inst; 
+            }
+        }
+    }
+    void visit(EqExpAST & ast){
+        if(ast.rel_exp && !ast.eq_exp){
+            auto relExp= static_cast<RelExpAST*>(ast.rel_exp.get());
+            visit(*relExp);
+        }
+        else if(ast.eq_exp && ast.rel_exp){
+            visit(*static_cast<EqExpAST*>(ast.eq_exp.get()));
+            Value* left = lastVal;
+            visit(*static_cast<RelExpAST*>(ast.rel_exp.get()));
+            Value* right = lastVal;
+
+            Instruction* inst = nullptr;
+            if (ast.eq_op == "==") {
+                inst = new Binary(OpType::Eq, left, right, newTemp());
+            } 
+            else if (ast.eq_op == "!=") {
+                inst = new Binary(OpType::Ne, left, right, newTemp());
+            }
+
+            if (inst) {
+                currentBlock->addInst(inst);
+                lastVal = inst; 
+            }
+        }
+    }
+    void visit(LAndExpAST& ast){
+        if(ast.eq_exp && !ast.land_exp){
+            //拼接逻辑&&
+            auto eqExp= static_cast<EqExpAST*>(ast.eq_exp.get());
+            visit(*eqExp);
+        }
+        else if(ast.land_exp && ast.eq_exp){
+            //左边
+            visit(*static_cast<LAndExpAST*>(ast.land_exp.get()));
+            Value* left = lastVal;
+
+            //%1 = ne a, 0
+            auto zero1 = new Integer(0);
+            currentBlock->addValue(zero1);
+            auto cmp1 = new Binary(OpType::Ne, left, zero1, newTemp());
+            currentBlock->addInst(cmp1);
+
+            //右边
+            visit(*static_cast<EqExpAST*>(ast.eq_exp.get()));
+            Value* right = lastVal;
+
+            //%2 = ne b, 0
+            auto zero2 = new Integer(0);
+            currentBlock->addValue(zero2);
+            auto cmp2 = new Binary(OpType::Ne, right, zero2, newTemp());
+            currentBlock->addInst(cmp2);
+
+            auto inst = new Binary(OpType::AND, cmp1, cmp2, newTemp());
+                currentBlock->addInst(inst);
+                lastVal = inst; 
+            }
+        }
+    
+    void visit(LOrExpAST& ast){
+        if(ast.land_exp && !ast.lor_exp){
+            auto landExp= static_cast<LAndExpAST*>(ast.land_exp.get());
+            visit(*landExp);
+        }
+        else if(ast.lor_exp && ast.land_exp){
+            //左边
+            visit(*static_cast<LOrExpAST*>(ast.lor_exp.get()));
+            Value* left = lastVal;
+            //%1 = ne a, 0
+            auto zero1 = new Integer(0);
+            currentBlock->addValue(zero1);
+            auto cmp1 = new Binary(OpType::Ne, left, zero1, newTemp());
+            currentBlock->addInst(cmp1);
+            //右边
+            visit(*static_cast<LAndExpAST*>(ast.land_exp.get()));
+            Value* right = lastVal;
+            //%2 = ne b, 0
+            auto zero2 = new Integer(0);
+            currentBlock->addValue(zero2);
+            auto cmp2 = new Binary(OpType::Ne, right, zero2, newTemp());
+            currentBlock->addInst(cmp2);
+            
+            auto inst = new Binary(OpType::OR, cmp1, cmp2, newTemp());
+                currentBlock->addInst(inst);
+                lastVal = inst;
+        }
+    }
+
+    void visit(AddExpAST& ast){
+        if(ast.mul_exp && !ast.add_exp){
+            auto mulExp= static_cast<MulExpAST*>(ast.mul_exp.get());
+            visit(*mulExp);
+            return;
+        }
+        else if(ast.add_exp && ast.mul_exp){
+            visit(*static_cast<AddExpAST*>(ast.add_exp.get()));
+            Value* left = lastVal;
+            visit(*static_cast<MulExpAST*>(ast.mul_exp.get()));
+            Value* right = lastVal;
+
+            Instruction* inst = nullptr;
+            if (ast.add_op == '+') {
+                inst = new Binary(OpType::Add, left, right, newTemp());
+            } 
+            else if (ast.add_op == '-') {
+                inst = new Binary(OpType::Sub, left, right, newTemp());
+            }
+
+            if (inst) {
+                currentBlock->addInst(inst);
+                lastVal = inst; 
+            }
+        }
+    }
+    void visit(MulExpAST& ast){
+        if(ast.unary_exp && !ast.mul_exp){
             auto unaryExp= static_cast<UnaryExpAST*>(ast.unary_exp.get());
             visit(*unaryExp);
+            return;
+        }
+        else if(ast.mul_exp && ast.unary_exp){
+            visit(*static_cast<MulExpAST*>(ast.mul_exp.get()));
+            Value* left = lastVal;
+            visit(*static_cast<UnaryExpAST*>(ast.unary_exp.get()));
+            Value* right = lastVal;
+
+            Instruction* inst = nullptr;
+            if (ast.mul_op == '*') {
+                inst = new Binary(OpType::Mul, left, right, newTemp());
+            } 
+            else if (ast.mul_op == '/') {
+                inst = new Binary(OpType::Div, left, right, newTemp());
+            }
+            else if (ast.mul_op == '%') {
+                inst = new Binary(OpType::Mod, left, right, newTemp());
+            }
+
+            if (inst) {
+                currentBlock->addInst(inst);
+                lastVal = inst; 
+            }
         }
     }
     void visit(UnaryExpAST& ast) {
@@ -85,10 +260,12 @@ void visit(FuncDefAST& ast) {
 
             if (op == '-') {
                 auto zero = new Integer(0);
+                currentBlock->addValue(zero);
                 inst = new Binary(OpType::Sub, zero, operand, newTemp());
             } 
             else if (op == '!') {
                 auto zero = new Integer(0);
+                currentBlock->addValue(zero);
                 inst = new Binary(OpType::Eq, operand, zero, newTemp());
             }
             else if (op == '+') {
@@ -113,6 +290,8 @@ void visit(FuncDefAST& ast) {
         }
     }
     void visit(NumberAST& ast) {
-        lastVal = new Integer(ast.value);
+        auto num = new Integer(ast.value);
+        currentBlock->addValue(num);
+        lastVal = num;
     }
 };

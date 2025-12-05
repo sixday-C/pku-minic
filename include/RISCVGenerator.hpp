@@ -42,7 +42,7 @@ private:
     }
 
 
-    std::string getValReg(Value* val) {
+    std::string getValReg(Value* val,std::string tmpReg="t6") {
        std::string name=val->name;
        if (name[0] == '%') {
             return getReg(name);
@@ -51,8 +51,8 @@ private:
             return "x0";
         }
         //如果是一个非零的立即数，输出 li 指令
-        ss<< "  li t6, " << name << "\n";
-        return "t6";
+        ss<< "  li " << tmpReg << ", " << name << "\n";
+        return tmpReg;
     }
 
     void visit(const Function& func) {
@@ -77,8 +77,8 @@ private:
     void visitBinary(const Binary& inst) {
         std::string rd = allocReg(inst.name);
 
-        std::string rs1 = getValReg(inst.lhs);
-        std::string rs2 = getValReg(inst.rhs);
+        std::string rs1 = getValReg(inst.lhs,"t5");
+        std::string rs2 = getValReg(inst.rhs,"t6");
 
         if (inst.op == OpType::Sub) {
             ss << "  sub " << rd << ", " << rs1 << ", " << rs2 << "\n";
@@ -87,16 +87,21 @@ private:
             ss << "  add " << rd << ", " << rs1 << ", " << rs2 << "\n";
         }
         else if (inst.op == OpType::Eq) {
-            // 1. xor rd, rs1, rs2  (如果不相等，rd非0；如果相等，rd为0)
             ss << "  xor "<< rd << ", " << rs1 << ", " << rs2 << "\n";
-            // 2. seqz rd, rd       (如果rd为0，则置1；否则置0)
             ss << "  seqz " << rd << ", " << rd << "\n";
+        }
+        else if (inst.op == OpType::Mul) {
+            ss << "  mul " << rd << ", " << rs1 << ", " << rs2 << "\n";
+        }
+        else if (inst.op == OpType::Div) {
+            ss << "  div " << rd << ", " << rs1 << ", " << rs2 << "\n";
+        }
+        else if (inst.op == OpType::Mod) {
+            ss << "  rem " << rd << ", " << rs1 << ", " << rs2 << "\n";
         }
     }
     void visitReturn(const ReturnInst& inst) {
         std::string valReg = getValReg(inst.retValue);
-        
-        // mv a0, ...
         ss << "  mv a0, " << valReg << "\n";
         ss << "  ret\n";
     }
