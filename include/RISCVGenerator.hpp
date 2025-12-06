@@ -4,6 +4,7 @@
 #include <string>
 #include <sstream>
 #include <iostream>
+#include <vector>
 
 class RISCVGenerator {
 private:
@@ -26,12 +27,19 @@ private:
 
     std::map<std::string, std::string> regMap;
     int tCounter=0;
-
+    const std::vector<std::string> regs = {
+        "t0", "t1", "t2", "t3", "t4", "t5", "t6",
+        "a1", "a2", "a3", "a4", "a5", "a6", "a7",
+        "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11"
+    };
     std::string allocReg(const std::string& name) {
-    std::string reg = "t" + std::to_string(tCounter);
-    tCounter++;   
-    regMap[name] = reg; 
-    return reg;
+    if (tCounter >= regs.size()) {
+            tCounter = 0; 
+        }
+        std::string reg = regs[tCounter];
+        tCounter++;   
+        regMap[name] = reg; 
+        return reg;
     }
     
     std::string getReg(const std::string& name) {
@@ -42,7 +50,7 @@ private:
     }
 
 
-    std::string getValReg(Value* val,std::string tmpReg="t6") {
+    std::string getValReg(Value* val,std::string tmpReg="s0") {
        std::string name=val->name;
        if (name[0] == '%') {
             return getReg(name);
@@ -77,8 +85,8 @@ private:
     void visitBinary(const Binary& inst) {
         std::string rd = allocReg(inst.name);
 
-        std::string rs1 = getValReg(inst.lhs,"t5");
-        std::string rs2 = getValReg(inst.rhs,"t6");
+        std::string rs1 = getValReg(inst.lhs,"s0");
+        std::string rs2 = getValReg(inst.rhs,"s1");
 
         if (inst.op == OpType::Sub) {
             ss << "  sub " << rd << ", " << rs1 << ", " << rs2 << "\n";
@@ -99,6 +107,31 @@ private:
         else if (inst.op == OpType::Mod) {
             ss << "  rem " << rd << ", " << rs1 << ", " << rs2 << "\n";
         }
+        else if (inst.op == OpType::Lt) {
+            ss << "  slt " << rd << ", " << rs1 << ", " << rs2 << "\n";
+        }
+        else if (inst.op == OpType::Gt) {
+            ss << "  sgt " << rd << ", " << rs1 << ", " << rs2 << "\n";
+        }
+        else if (inst.op == OpType::Le) {
+            ss << "  sgt " << rd << ", " << rs1 << ", " << rs2 << "\n";
+            ss << "  seqz " << rd << ", " << rd << "\n";
+        }
+        else if (inst.op == OpType::Ge) {
+            ss << "  slt " << rd << ", " << rs1 << ", " << rs2 << "\n";
+            ss << "  seqz " << rd << ", " << rd << "\n";
+        }
+        else if (inst.op == OpType::Ne) {
+            ss << "  xor "<< rd << ", " << rs1 << ", " << rs2 << "\n";
+            ss << "  snez " << rd << ", " << rd << "\n";
+        }
+        else if (inst.op == OpType::AND) {
+            ss << "  and " << rd << ", " << rs1 << ", " << rs2 << "\n";
+        }
+        else if (inst.op == OpType::OR) {
+            ss << "  or " << rd << ", " << rs1 << ", " << rs2 << "\n";
+        }
+
     }
     void visitReturn(const ReturnInst& inst) {
         std::string valReg = getValReg(inst.retValue);
