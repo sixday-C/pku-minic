@@ -1,15 +1,19 @@
-# EBNF
+CompUnit    ::= FuncDef;
 
-CompUnit  ::= FuncDef;
-FuncDef   ::= FuncType IDENT "(" ")" Block;
-FuncType  ::= "int";
-Block     ::= "{" Stmt "}"%;
-Number    ::= INT_CONST;
+FuncDef     ::= FuncType IDENT "(" ")" Block;
+FuncType    ::= "int";
+
+Block       ::= "{" Stmt "}";
 Stmt        ::= "return" Exp ";";
-Exp         ::= AddExp;
-PrimaryExp  ::= "(" Exp ")" | Number; //6   (---6)
+
+Exp         ::= LOrExp;
+PrimaryExp  ::= "(" Exp ")" | Number;
 Number      ::= INT_CONST;
-UnaryExp    ::= PrimaryExp | UnaryOp UnaryExp; // ----6
+UnaryExp    ::= PrimaryExp | UnaryOp UnaryExp;
 UnaryOp     ::= "+" | "-" | "!";
-AddExp      ::= MulExp | AddExp ("+" | "-") MulExp;
 MulExp      ::= UnaryExp | MulExp ("*" | "/" | "%") UnaryExp;
+AddExp      ::= MulExp | AddExp ("+" | "-") MulExp;
+RelExp      ::= AddExp | RelExp ("<" | ">" | "<=" | ">=") AddExp;
+EqExp       ::= RelExp | EqExp ("==" | "!=") RelExp;
+LAndExp     ::= EqExp | LAndExp "&&" EqExp;
+LOrExp      ::= LAndExp | LOrExp "||" LAndExp;

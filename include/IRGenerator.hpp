@@ -2,11 +2,11 @@
 #include "ast.hpp" 
 #include "ir.hpp"  
 #include <cassert> 
-
+#include "SymbolTable.hpp"
 class IRGenerator {
 public:
     std::unique_ptr<Program> program;
-
+    SymbolTable sym_table;
 private:
     Function* currentFunc=nullptr;
     BasicBlock* currentBlock=nullptr;
@@ -26,9 +26,12 @@ public:
     }
 
 void visit(CompUnitAST* ast){
+    ast->evaluate(sym_table);
+
     auto funcDef = static_cast<FuncDefAST*>(ast->func_def.get());
     visit(*funcDef);
 }
+
 void visit(FuncDefAST& ast) {
     tempCounter=0;
     auto func=std::make_unique<Function>("@"+ast.ident);
@@ -42,20 +45,19 @@ void visit(FuncDefAST& ast) {
     }
     
     void visit(BlockAST& ast) {
-        if(ast.stmt)
-        {
-        auto retStmt = static_cast<ReturnStmtAST*>(ast.stmt.get());
-        
-        if(retStmt)
-        {
-        visit(*retStmt);
+        for(auto& item : ast.block_items){
+            auto block_item = static_cast<BlockItemAST*>(item.get());
+            if (block_item->decl) {
+            // 不生成 IR（常量已在 evaluate 阶段处理）
+            continue;
         }
+        else if (block_item->stmt) {
+            auto stmt = static_cast<StmtAST*>(block_item->stmt.get());
+            visit(*stmt);
+        }  
     }
     } 
-    // void visit(StmtAST& ast) {
-    //     visit(*expNode);
-    // }
-    void visit(ReturnStmtAST& ast) {
+    void visit(StmtAST& ast) {
         if(ast.exp){
             auto exp= static_cast<ExpAST*>(ast.exp.get());
             visit(*exp);
@@ -63,6 +65,7 @@ void visit(FuncDefAST& ast) {
             currentBlock->addInst(retInst);
         }
     }
+    
     void visit(ExpAST& ast) {
         if(ast.lor_exp){
             auto lorExp= static_cast<LOrExpAST*>(ast.lor_exp.get());
@@ -286,8 +289,15 @@ void visit(FuncDefAST& ast) {
         else if (ast.exp) {
             auto exp = static_cast<ExpAST*>(ast.exp.get());
             visit(*exp);
-
         }
+        else if (ast.lval){
+            auto lval = static_cast<LValAST*>(ast.lval.get());
+            int value = sym_table.lookup(lval->ident);
+            auto num = new Integer(value);
+            currentBlock->addValue(num);
+            lastVal = num;
+        }
+        
     }
     void visit(NumberAST& ast) {
         auto num = new Integer(ast.value);

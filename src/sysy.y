@@ -37,7 +37,7 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN LE GE EQ NE LOR LAND
+%token INT RETURN LE GE EQ NE LOR LAND CONST 
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
@@ -47,6 +47,8 @@ using namespace std;
 %type <ast_val> Exp PrimaryExp UnaryExp 
 %type <ast_val> MulExp AddExp
 %type <ast_val> LOrExp RelExp EqExp LAndExp 
+%type <ast_val> LVal
+%type <ast_val> BlockItemList BlockItem Decl ConstDecl BType ConstDef ConstInitVal ConstExp ConstDefList
 
 %%
 
@@ -74,18 +76,102 @@ FuncType
   ;
 
 Block
-  : '{' Stmt '}' {
+  : '{' '}' {
     auto b=new BlockAST();
-    b->stmt=std::unique_ptr<BaseAST>($2);
     $$=b;
+  }
+  |'{' BlockItemList '}' {
+    $$=$2;
   }
   ;
 
+BlockItemList
+  : BlockItem {
+    auto b=new BlockAST();
+    b->block_items.push_back(std::unique_ptr<BaseAST>($1));
+    $$=b;
+  }
+  | BlockItemList BlockItem {
+    auto b=static_cast<BlockAST*>($1);
+    b->block_items.push_back(std::unique_ptr<BaseAST>($2));
+    $$=$1;
+  }
+  ;
 
+BlockItem  
+   : Decl {
+    auto b=new BlockItemAST();
+    b->decl=std::unique_ptr<BaseAST>($1);
+    $$=b;
+   }
+   | Stmt{
+    auto b=new BlockItemAST();
+    b->stmt=std::unique_ptr<BaseAST>($1);
+    $$=b;
+   };
+
+Decl 
+  : ConstDecl{
+    auto d=new DeclAST();
+    d->const_decl=std::unique_ptr<BaseAST>($1);
+    $$=d;
+  }
+  ;
+  
+ConstDecl
+  : CONST BType ConstDefList ';'{
+    auto d=static_cast<ConstDeclAST*>($3);
+    d->b_type=std::unique_ptr<BaseAST>($2);
+    $$=d;
+  }
+  ;
+  ConstDefList
+  : ConstDef {
+    auto c=new ConstDeclAST();
+    c->const_defs.push_back(std::unique_ptr<BaseAST>($1));
+    $$=c;
+  }
+  | ConstDefList ',' ConstDef {
+    auto c=static_cast<ConstDeclAST*>($1);
+    c->const_defs.push_back(std::unique_ptr<BaseAST>($3));
+    $$=$1;
+  }
+  ;
+
+BType
+  : INT {
+    $$ = new BTypeAST("int");
+  }
+  ;
+
+ConstDef
+  : IDENT '=' ConstInitVal {
+    auto c=new ConstDefAST();
+    c->ident=*unique_ptr<string>($1);
+    c->const_init_val=std::unique_ptr<BaseAST>($3);
+    $$=c;
+  }
+  ;
+
+ConstInitVal
+  : ConstExp{
+    auto c=new ConstInitValAST();
+    c->const_exp=std::unique_ptr<BaseAST>($1);
+    $$=c;
+  }
+  ;
+
+ConstExp
+ :Exp{
+    auto c=new ConstExpAST();
+    c->exp=std::unique_ptr<BaseAST>($1);
+    $$=c;
+  }
+  ;
 
 Stmt
   : RETURN Exp ';' {
-    auto s=new ReturnStmtAST();
+    auto s=new StmtAST();
     s->exp=std::unique_ptr<BaseAST>($2);
     $$=s;
   }
@@ -238,6 +324,11 @@ PrimaryExp
     p->exp=std::unique_ptr<BaseAST>($2);
     $$ = p;
   }
+  | LVal {
+    auto p=new PrimaryExpAST();
+    p->lval=std::unique_ptr<BaseAST>($1);
+    $$ = p;
+  }
   | Number {
     auto p=new PrimaryExpAST();
     p->number=std::unique_ptr<BaseAST>($1);
@@ -272,6 +363,13 @@ UnaryExp
 Number
   : INT_CONST {
     $$ = new NumberAST($1);
+  }
+  ;
+LVal
+  : IDENT {
+    auto l=new LValAST();
+    l->ident=*std::unique_ptr<std::string>($1);
+    $$=l;
   }
   ;
 

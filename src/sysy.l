@@ -42,6 +42,7 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 "!="              { return NE; }
 "||"              { return LOR; }
 "&&"              { return LAND; }
+"const"          { return CONST; }
 
 {Identifier}    { yylval.str_val = new string(yytext); return IDENT; } //main
 
@@ -64,6 +65,7 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 "!"               { return yytext[0]; }
 "<"               { return yytext[0]; }
 ">"               { return yytext[0]; }
+"="               { return yytext[0]; }
 
 .               { std::cerr << "Lexical error "; return yytext[0]; }
 

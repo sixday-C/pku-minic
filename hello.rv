@@ -2,14 +2,6 @@
   .globl main
 main:
 entry:
-  li t5, 5
-  xor t0, t5, x0
-  seqz t0, t0
-  xor t1, t0, x0
-  snez t1, t1
-  li t5, 6
-  xor t2, t5, x0
-  snez t2, t2
-  and t3, t1, t2
-  mv a0, t3
+  li s0, 10
+  mv a0, s0
   ret
