@@ -26,8 +26,6 @@ public:
     }
 
 void visit(CompUnitAST* ast){
-    ast->evaluate(sym_table);
-
     auto funcDef = static_cast<FuncDefAST*>(ast->func_def.get());
     visit(*funcDef);
 }
@@ -48,8 +46,8 @@ void visit(FuncDefAST& ast) {
         for(auto& item : ast.block_items){
             auto block_item = static_cast<BlockItemAST*>(item.get());
             if (block_item->decl) {
-            // 不生成 IR（常量已在 evaluate 阶段处理）
-            continue;
+            auto decl = static_cast<DeclAST*>(block_item->decl.get());
+            visit(*decl);
         }
         else if (block_item->stmt) {
             auto stmt = static_cast<StmtAST*>(block_item->stmt.get());
@@ -57,13 +55,71 @@ void visit(FuncDefAST& ast) {
         }  
     }
     } 
+    void visit(DeclAST& ast) {
+        if (ast.const_decl) {
+            auto const_decl = static_cast<ConstDeclAST*>(ast.const_decl.get());
+            visit(*const_decl);
+        }
+        else if (ast.var_decl) {
+            auto var_decl = static_cast<VarDeclAST*>(ast.var_decl.get());
+            visit(*var_decl);
+        }
+    }
+    void visit(ConstDeclAST& ast) {
+        for (auto& const_def : ast.const_defs) {
+            auto constDef = static_cast<ConstDefAST*>(const_def.get());
+            visit(*constDef);
+        }
+    }
+    void visit(ConstDefAST& ast) {
+        auto const_init_val = static_cast<ConstInitValAST*>(ast.const_init_val.get());
+        visit(*const_init_val);
+        int value = lastVal->type == Type::Int32 ? static_cast<Integer*>(lastVal)->value : 0;
+        sym_table.insertConst(ast.ident, value);
+    }
+     void visit(ConstInitValAST& ast) {
+        int value = ast.const_exp->evalConst(sym_table);
+        auto num = new Integer(value);
+        currentBlock->addValue(num);
+        lastVal = num;
+    }
+    void visit(VarDeclAST& ast) {
+        for (auto& var_def : ast.var_defs) {
+            auto varDef = static_cast<VarDefAST*>(var_def.get());
+            visit(*varDef);
+        }
+    }
+    void visit(VarDefAST& ast) {
+        auto allocInst = new AllocInst("@" + ast.ident);
+        currentBlock->addInst(allocInst);
+        sym_table.insertVar(ast.ident, allocInst);
+
+        if (ast.init_val) {
+            visit(*static_cast<InitValAST*>(ast.init_val.get()));
+            auto storeInst = new StoreInst(lastVal, allocInst);
+            currentBlock->addInst(storeInst);
+        }
+    }
+    void visit(InitValAST& ast) {
+        visit(*static_cast<ExpAST*>(ast.exp.get()));
+    }
     void visit(StmtAST& ast) {
-        if(ast.exp){
+        if(ast.lval&&ast.exp){
+            //lval=exp;
+            auto lval= static_cast<LValAST*>(ast.lval.get());
+            Value* address = sym_table.lookupVar(lval->ident);
+            visit(*static_cast<ExpAST*>(ast.exp.get()));
+            Value* value = lastVal;
+            auto storeInst = new StoreInst(value, address);
+            currentBlock->addInst(storeInst);
+        }
+        else if(ast.exp){
             auto exp= static_cast<ExpAST*>(ast.exp.get());
             visit(*exp);
             auto retInst = new ReturnInst(lastVal);
             currentBlock->addInst(retInst);
         }
+
     }
     
     void visit(ExpAST& ast) {
@@ -292,10 +348,21 @@ void visit(FuncDefAST& ast) {
         }
         else if (ast.lval){
             auto lval = static_cast<LValAST*>(ast.lval.get());
-            int value = sym_table.lookup(lval->ident);
-            auto num = new Integer(value);
-            currentBlock->addValue(num);
-            lastVal = num;
+            const auto& info = sym_table.lookup(lval->ident);
+            if(info.type==SymbolInfo::CONST){
+                int const_value = info.const_value;
+                auto num = new Integer(const_value);
+                currentBlock->addValue(num);
+                lastVal = num;
+                return;
+            }
+            else if(info.type==SymbolInfo::VAR){
+                //load 指令生成
+                auto loadInst = new LoadInst(info.var_alloc, newTemp());
+                currentBlock->addInst(loadInst);
+                lastVal = loadInst;
+                return;
+            }
         }
         
     }

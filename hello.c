@@ -1,8 +1,6 @@
-int main() { 
-    // 摊牌了, 我是注释
-    const int a = 5;
-    const int b = 5;
-    const int c = a+b;
-    return c; 
-    }
-
+int main() {
+    const int c = 10;
+    int b = 5;
+    int a = b + 10;
+    return a;
+}

@@ -36,9 +36,12 @@ enum class OpType{
     Gt, //>
     Le, //<=
     Ge, //>=
-    Ne //!=
-    ,AND // &   用来拼接&&
-    ,OR // |    用来拼接||
+    Ne, //!=
+    AND, // &   用来拼接&&
+    OR, // |    用来拼接||
+    Alloc,
+    Store,
+    Load
 };
 
 inline std::string opName(OpType op) {
@@ -57,6 +60,9 @@ inline std::string opName(OpType op) {
         case OpType::Ne: return "ne";
         case OpType::AND: return "and";
         case OpType::OR: return "or";
+        case OpType::Alloc: return "alloc";
+        case OpType::Store: return "store";
+        case OpType::Load: return "load";
         default: return "unknown";
     }
 }
@@ -116,6 +122,36 @@ public:
     }
 };
 
+class AllocInst : public Instruction {
+public:
+    AllocInst(const std::string& n)
+        : Instruction(OpType::Alloc, Type::Int32, n) {        
+        } 
+    std::string toString() const override {
+        return name + " = alloc i32";
+    }
+}; 
+class StoreInst : public Instruction {
+public:
+    Value* value;
+    Value* address;
+    StoreInst(Value* val, Value* addr)
+        : Instruction(OpType::Store, Type::Void, ""), value(val), address(addr) {
+        } 
+    std::string toString() const override {
+        return "store " + value->name + ", " + address->name;
+    }
+};
+class LoadInst : public Instruction {
+public:
+    Value* address;
+    LoadInst(Value* addr, const std::string& n)
+        : Instruction(OpType::Load, Type::Int32, n), address(addr) {
+        } 
+    std::string toString() const override {
+        return name + " = load " + address->name;
+    }
+};
 class BasicBlock : public Value {
 public:
     std::list<std::unique_ptr<Instruction>> insts;

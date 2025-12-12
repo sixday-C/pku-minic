@@ -49,6 +49,7 @@ using namespace std;
 %type <ast_val> LOrExp RelExp EqExp LAndExp 
 %type <ast_val> LVal
 %type <ast_val> BlockItemList BlockItem Decl ConstDecl BType ConstDef ConstInitVal ConstExp ConstDefList
+%type <ast_val> VarDecl VarDef InitVal VarDefList
 
 %%
 
@@ -116,8 +117,57 @@ Decl
     d->const_decl=std::unique_ptr<BaseAST>($1);
     $$=d;
   }
+  | VarDecl{
+    auto d=new DeclAST();
+    d->var_decl=std::unique_ptr<BaseAST>($1);
+    $$=d;
+  }
+  ;
+
+VarDecl
+  : BType VarDefList ';'{
+    auto d=static_cast<VarDeclAST*>($2);
+    d->b_type=std::unique_ptr<BaseAST>($1);
+    $$=d;
+  }
   ;
   
+VarDefList
+  : VarDef {
+    auto v=new VarDeclAST();
+    v->var_defs.push_back(std::unique_ptr<BaseAST>($1));
+    $$=v;
+  }
+  | VarDefList ',' VarDef {
+    auto v=static_cast<VarDeclAST*>($1);
+    v->var_defs.push_back(std::unique_ptr<BaseAST>($3));
+    $$=$1;
+  }
+  ;
+
+VarDef
+  : IDENT {
+    auto v=new VarDefAST();
+    v->ident=*unique_ptr<string>($1);
+    v->init_val=nullptr;
+    $$=v;
+  }
+  | IDENT '=' InitVal {
+    auto v=new VarDefAST();
+    v->ident=*unique_ptr<string>($1);
+    v->init_val=std::unique_ptr<BaseAST>($3);
+    $$=v;
+  }
+  ;
+
+InitVal
+  : Exp{
+    auto i=new InitValAST();
+    i->exp=std::unique_ptr<BaseAST>($1);
+    $$=i;
+  }
+  ;
+
 ConstDecl
   : CONST BType ConstDefList ';'{
     auto d=static_cast<ConstDeclAST*>($3);
@@ -170,7 +220,13 @@ ConstExp
   ;
 
 Stmt
-  : RETURN Exp ';' {
+  :LVal '=' Exp ';' {
+    auto s=new StmtAST();
+    s->lval=std::unique_ptr<BaseAST>($1);
+    s->exp=std::unique_ptr<BaseAST>($3);
+    $$=s;
+  }
+  | RETURN Exp ';' {
     auto s=new StmtAST();
     s->exp=std::unique_ptr<BaseAST>($2);
     $$=s;
@@ -197,6 +253,7 @@ LOrExp
     l->land_exp=std::unique_ptr<BaseAST>($3);
     $$=l;
   }
+  ;
 
 LAndExp
   : EqExp {
