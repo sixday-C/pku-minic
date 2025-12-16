@@ -8,7 +8,6 @@
 
 class RISCVGenerator {
 private:
-    // 1. 这是我们的笔记本，生成的代码先写在这里
     std::stringstream ss;
 public:
     std::string generate(const Program& prog) {
@@ -25,49 +24,70 @@ public:
     }
 private:
 
-    std::map<std::string, std::string> regMap;
-    int tCounter=0;
-    const std::vector<std::string> regs = {
-        "t0", "t1", "t2", "t3", "t4", "t5", "t6",
-        "a1", "a2", "a3", "a4", "a5", "a6", "a7",
-        "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11"
-    };
-    std::string allocReg(const std::string& name) {
-    if (tCounter >= regs.size()) {
-            tCounter = 0; 
-        }
-        std::string reg = regs[tCounter];
-        tCounter++;   
-        regMap[name] = reg; 
-        return reg;
+   std::string getValRegFromStack(Value* val, const std::string& tempReg) {
+    std::string name=val->name;
+    if(name=="0"){
+        return "x0";
     }
-    
-    std::string getReg(const std::string& name) {
-        if (regMap.find(name) != regMap.end()) {
-            return regMap[name];
+    if(name[0]=='@'||name[0]=='%'){//变量或临时变量
+        int offset = getStackOffset(name);
+        ss << "  lw " << tempReg << ", " << offset << "(sp)\n";//从栈上加载到临时寄存器
+        return tempReg;
+    }
+    else{
+        //立即数
+        ss << "  li " << tempReg << ", " << name << "\n";
+        return tempReg;
+    }
+}
+
+    int getStackOffset(const std::string& name) {
+        if (stackMap.find(name) != stackMap.end()) {
+            return stackMap[name];
         }
-        return "error_reg"; 
+        throw std::runtime_error("Variable not found in stack map: " + name);
     }
 
-
-    std::string getValReg(Value* val,std::string tmpReg="s0") {
-       std::string name=val->name;
-       if (name[0] == '%') {
-            return getReg(name);
+    std::map<std::string,int> stackMap;
+    int stackSize=0;
+    void allocateStack(const Function& func){
+        int offset=0;
+        for(const auto& block : func.blocks) {
+            for (const auto& inst : block->insts) {
+                if (inst->op == OpType::Alloc) {
+                    stackMap[inst->name]=offset;
+                    offset+=4; 
+                }
+                else if (inst->type == Type::Int32) {
+                    stackMap[inst->name]=offset;
+                    offset+=4; 
+                }
+            }
         }
-        else if(name=="0"){
-            return "x0";
+        stackSize = offset;
+        if(stackSize%16!=0){
+            stackSize= ((stackSize/16)+1)*16;
         }
-        //如果是一个非零的立即数，输出 li 指令
-        ss<< "  li " << tmpReg << ", " << name << "\n";
-        return tmpReg;
     }
+
 
     void visit(const Function& func) {
+        stackMap.clear();
+        stackSize=0;
+        allocateStack(func);
         ss<<func.name.substr(1) << ":\n";
+        if (stackSize > 0) {
+        if (stackSize <= 2048) {
+            ss << "  addi sp, sp, -" << stackSize << "\n";
+        } else {
+            ss << "  li t0, -" << stackSize << "\n";
+            ss << "  add sp, sp, t0\n";
+        }
+    }
         for(const auto& block : func.blocks) {
             visit(*block);
         }
+
     }
     void visit(const BasicBlock& block) {
         ss<<block.name.substr(1)<< ":\n";
@@ -78,64 +98,98 @@ private:
     void visit(const Instruction& inst) {
         if (inst.op == OpType::Ret) {
             visitReturn(static_cast<const ReturnInst&>(inst));
-        } else {
+        }
+        else if(inst.op==OpType::Alloc){
+            visitAlloc(static_cast<const AllocInst&>(inst));
+        }
+        else if(inst.op==OpType::Store){
+            visitStore(static_cast<const StoreInst&>(inst));
+        }
+        else if(inst.op==OpType::Load){
+            visitLoad(static_cast<const LoadInst&>(inst));
+        }
+         else {
             visitBinary(static_cast<const Binary&>(inst));
         }
     }
+    void visitAlloc(const AllocInst& inst) {
+        //不生成具体指令
+    }
+    void visitStore(const StoreInst& inst) {
+        //store 10,@x.  把 10加载到临时寄存器，然后存到栈上
+        std::string valReg = getValRegFromStack(inst.value,"t0");
+        int offset = getStackOffset(inst.address->name);
+        ss << "  sw " << valReg << ", " << offset << "(sp)\n";
+    }
+    void visitLoad(const LoadInst& inst) {
+        //%0 = load @x
+        //从栈上加载到一个临时寄存器
+        int offset1 = getStackOffset(inst.address->name);
+        int offset2 = getStackOffset(inst.name);
+        ss << "  lw t0, " << offset1 << "(sp)\n";
+        ss << "  sw t0, " << offset2 << "(sp)\n"; 
+    }
     void visitBinary(const Binary& inst) {
-        std::string rd = allocReg(inst.name);
-
-        std::string rs1 = getValReg(inst.lhs,"s0");
-        std::string rs2 = getValReg(inst.rhs,"s1");
+        std::string rs1= getValRegFromStack(inst.lhs,"t0");
+        std::string rs2= getValRegFromStack(inst.rhs,"t1");
 
         if (inst.op == OpType::Sub) {
-            ss << "  sub " << rd << ", " << rs1 << ", " << rs2 << "\n";
+            ss << "  sub t0, " <<rs1 << ", " << rs2 << "\n";
         } 
         else if (inst.op == OpType::Add) {
-            ss << "  add " << rd << ", " << rs1 << ", " << rs2 << "\n";
+            ss << "  add t0, " << rs1 << ", " << rs2 << "\n";
         }
         else if (inst.op == OpType::Eq) {
-            ss << "  xor "<< rd << ", " << rs1 << ", " << rs2 << "\n";
-            ss << "  seqz " << rd << ", " << rd << "\n";
+            ss << "  xor t0, " << rs1 << ", " << rs2 << "\n";
+            ss << "  seqz t0, " << "t0" << "\n";
         }
         else if (inst.op == OpType::Mul) {
-            ss << "  mul " << rd << ", " << rs1 << ", " << rs2 << "\n";
+            ss << "  mul t0, " << rs1 << ", " << rs2 << "\n";
         }
         else if (inst.op == OpType::Div) {
-            ss << "  div " << rd << ", " << rs1 << ", " << rs2 << "\n";
+            ss << "  div t0, " << rs1 << ", " << rs2 << "\n";
         }
         else if (inst.op == OpType::Mod) {
-            ss << "  rem " << rd << ", " << rs1 << ", " << rs2 << "\n";
+            ss << "  rem t0, " << rs1 << ", " << rs2 << "\n";
         }
         else if (inst.op == OpType::Lt) {
-            ss << "  slt " << rd << ", " << rs1 << ", " << rs2 << "\n";
+            ss << "  slt t0, " << rs1 << ", " << rs2 << "\n";
         }
         else if (inst.op == OpType::Gt) {
-            ss << "  sgt " << rd << ", " << rs1 << ", " << rs2 << "\n";
+            ss << "  sgt t0, " << rs1 << ", " << rs2 << "\n";
         }
         else if (inst.op == OpType::Le) {
-            ss << "  sgt " << rd << ", " << rs1 << ", " << rs2 << "\n";
-            ss << "  seqz " << rd << ", " << rd << "\n";
+            ss << "  sgt t0, " << rs1 << ", " << rs2 << "\n";
+            ss << "  seqz t0, " << "t0" << "\n";
         }
         else if (inst.op == OpType::Ge) {
-            ss << "  slt " << rd << ", " << rs1 << ", " << rs2 << "\n";
-            ss << "  seqz " << rd << ", " << rd << "\n";
+            ss << "  slt t0, " << rs1 << ", " << rs2 << "\n";
+            ss << "  seqz t0, " << "t0" << "\n";
         }
         else if (inst.op == OpType::Ne) {
-            ss << "  xor "<< rd << ", " << rs1 << ", " << rs2 << "\n";
-            ss << "  snez " << rd << ", " << rd << "\n";
+            ss << "  xor t0, " << rs1 << ", " << rs2 << "\n";
+            ss << "  snez t0, " << "t0" << "\n";
         }
         else if (inst.op == OpType::AND) {
-            ss << "  and " << rd << ", " << rs1 << ", " << rs2 << "\n";
+            ss << "  and t0, " << rs1 << ", " << rs2 << "\n";
         }
         else if (inst.op == OpType::OR) {
-            ss << "  or " << rd << ", " << rs1 << ", " << rs2 << "\n";
+            ss << "  or t0, " << rs1 << ", " << rs2 << "\n";
         }
+        int offset = getStackOffset(inst.name);
+        ss << "  sw t0, " << offset << "(sp)\n";
 
     }
     void visitReturn(const ReturnInst& inst) {
-        std::string valReg = getValReg(inst.retValue);
-        ss << "  mv a0, " << valReg << "\n";
+        std::string valReg = getValRegFromStack(inst.retValue,"a0");
+        if (stackSize > 0) {
+        if (stackSize <= 2048) {
+            ss << "  addi sp, sp, " << stackSize << "\n";
+        } else {
+            ss << "  li t0, " << stackSize << "\n";
+            ss << "  add sp, sp, t0\n";
+        }
+    }
         ss << "  ret\n";
     }
 };

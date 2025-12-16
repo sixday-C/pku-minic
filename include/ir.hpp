@@ -14,6 +14,10 @@ Types
 
 Value
     - Binary
+    - ReturnInst
+    - AllocInst
+    - StoreInst
+    - LoadInst
 */
 
 //类型

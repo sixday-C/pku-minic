@@ -39,7 +39,7 @@ class SymbolTable{
     }
     const SymbolInfo& lookup(const std::string& name) const {
         if (!exists(name)) {
-            throw std::runtime_error("Variable " + name + " not defined");
+            throw std::runtime_error("Symbol " + name + " not defined");
         }
         return table.at(name);
     }
