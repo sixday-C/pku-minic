@@ -1,6 +1,8 @@
 int main() {
-    const int c = 10;
-    int b = 5;
-    int a = b + 10;
-    return a;
+  int a = 1;        // 外层的 a
+  {
+    a = 2;          // 修改外层的 a
+    int a = 3;      // 内层的新 a（遮蔽了外层的 a）
+  }
+  return a;         // 返回外层的 a（值为 2）
 }

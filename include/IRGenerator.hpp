@@ -90,7 +90,8 @@ void visit(FuncDefAST& ast) {
         }
     }
     void visit(VarDefAST& ast) {
-        auto allocInst = new AllocInst("@" + ast.ident);
+        std::string uniqueName = sym_table.makeUniqueName(ast.ident);
+        auto allocInst = new AllocInst(uniqueName);
         currentBlock->addInst(allocInst);
         sym_table.insertVar(ast.ident, allocInst);
 
@@ -104,22 +105,44 @@ void visit(FuncDefAST& ast) {
         visit(*static_cast<ExpAST*>(ast.exp.get()));
     }
     void visit(StmtAST& ast) {
-        if(ast.lval&&ast.exp){
-            //lval=exp;
+        switch(ast.type){
+            case StmtAST::StmtType::Assign:
+            {
             auto lval= static_cast<LValAST*>(ast.lval.get());
             Value* address = sym_table.lookupVar(lval->ident);
             visit(*static_cast<ExpAST*>(ast.exp.get()));
             Value* value = lastVal;
             auto storeInst = new StoreInst(value, address);
             currentBlock->addInst(storeInst);
+                break;
+            }
+            case StmtAST::StmtType::Exp:
+            {
+                if(ast.exp){
+                    auto exp= static_cast<ExpAST*>(ast.exp.get());
+                    visit(*exp);
+                }
+                break;
+            }
+            case StmtAST::StmtType::Block:
+                {
+                    auto block = static_cast<BlockAST*>(ast.block.get());
+                    sym_table.enterScope();
+                    visit(*block);
+                    sym_table.exitScope();
+                    break;
+                }
+            case StmtAST::StmtType::Return:
+                {
+                    if(ast.exp){
+                        auto exp= static_cast<ExpAST*>(ast.exp.get());
+                        visit(*exp);
+                    }
+                    auto retInst = new ReturnInst(lastVal);
+                    currentBlock->addInst(retInst);
+                    break;
+                }
         }
-        else if(ast.exp){
-            auto exp= static_cast<ExpAST*>(ast.exp.get());
-            visit(*exp);
-            auto retInst = new ReturnInst(lastVal);
-            currentBlock->addInst(retInst);
-        }
-
     }
     
     void visit(ExpAST& ast) {

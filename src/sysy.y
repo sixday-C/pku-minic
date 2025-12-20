@@ -222,12 +222,32 @@ ConstExp
 Stmt
   :LVal '=' Exp ';' {
     auto s=new StmtAST();
+    s->type=StmtAST::StmtType::Assign;
     s->lval=std::unique_ptr<BaseAST>($1);
     s->exp=std::unique_ptr<BaseAST>($3);
     $$=s;
   }
+  |Exp ';' {
+    auto s=new StmtAST();
+    s->type=StmtAST::StmtType::Exp;
+    s->exp=std::unique_ptr<BaseAST>($1);
+    $$=s;
+  }
+  | ';' {
+    auto s=new StmtAST();
+    s->type=StmtAST::StmtType::Exp;
+    s->exp=nullptr;
+    $$=s;
+  }
+  | Block {
+    auto s=new StmtAST();
+    s->type=StmtAST::StmtType::Block;
+    s->block=std::unique_ptr<BaseAST>($1);
+    $$=s;
+  }
   | RETURN Exp ';' {
     auto s=new StmtAST();
+    s->type=StmtAST::StmtType::Return;
     s->exp=std::unique_ptr<BaseAST>($2);
     $$=s;
   }

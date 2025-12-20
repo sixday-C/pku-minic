@@ -113,8 +113,21 @@ class ConstExpAST: public BaseAST{
 
 class StmtAST: public BaseAST{
     public:
-    std::unique_ptr<BaseAST> exp;
+    enum class StmtType {
+        Assign,      // LVal = Exp;
+        Exp,         // Exp; 或 ;
+        Block,       // { ... }
+        Return       // return [Exp];
+    };
+    StmtType type;
+
     std::unique_ptr<BaseAST> lval;
+
+    std::unique_ptr<BaseAST> exp;
+
+    std::unique_ptr<BaseAST> block;
+
+
 
 };
 
