@@ -1,8 +1,7 @@
 int main() {
-  int a = 1;        // 外层的 a
-  {
-    a = 2;          // 修改外层的 a
-    int a = 3;      // 内层的新 a（遮蔽了外层的 a）
-  }
-  return a;         // 返回外层的 a（值为 2）
+  int a = 2;
+  if (a) {
+    a = a + 1;
+  } else a = 0;  // 在实际写 C/C++ 程序的时候别这样, 建议 if 的分支全部带大括号
+  return a;
 }

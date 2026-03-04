@@ -37,7 +37,7 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN LE GE EQ NE LOR LAND CONST 
+%token INT RETURN LE GE EQ NE LOR LAND CONST IF ELSE
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
@@ -50,6 +50,7 @@ using namespace std;
 %type <ast_val> LVal
 %type <ast_val> BlockItemList BlockItem Decl ConstDecl BType ConstDef ConstInitVal ConstExp ConstDefList
 %type <ast_val> VarDecl VarDef InitVal VarDefList
+%type <ast_val> OpenStmt ClosedStmt SimpleStmt
 
 %%
 
@@ -220,6 +221,42 @@ ConstExp
   ;
 
 Stmt
+  :OpenStmt {$$=$1;}
+  |ClosedStmt {$$=$1;}
+  ;
+
+ClosedStmt
+  : SimpleStmt {$$=$1;}
+  | IF '(' Exp ')' ClosedStmt ELSE ClosedStmt {
+    auto s=new StmtAST();
+    s->type=StmtAST::StmtType::IfElse;
+    s->exp=std::unique_ptr<BaseAST>($3);
+    s->then_stmt=std::unique_ptr<BaseAST>($5);
+    s->else_stmt=std::unique_ptr<BaseAST>($7);
+    $$=s;
+  }
+  ;
+
+OpenStmt
+  : IF '(' Exp ')' Stmt {
+    auto s=new StmtAST();
+    s->type=StmtAST::StmtType::IfThen;
+    s->exp=std::unique_ptr<BaseAST>($3);
+    s->then_stmt=std::unique_ptr<BaseAST>($5);
+    s->else_stmt=nullptr;
+    $$=s;
+  }
+  | IF '(' Exp ')' ClosedStmt ELSE OpenStmt {
+    auto s=new StmtAST();
+    s->type=StmtAST::StmtType::IfElse;
+    s->exp=std::unique_ptr<BaseAST>($3);
+    s->then_stmt=std::unique_ptr<BaseAST>($5);
+    s->else_stmt=std::unique_ptr<BaseAST>($7);
+    $$=s;
+  }
+  ;
+
+SimpleStmt
   :LVal '=' Exp ';' {
     auto s=new StmtAST();
     s->type=StmtAST::StmtType::Assign;
@@ -250,7 +287,7 @@ Stmt
     s->type=StmtAST::StmtType::Return;
     s->exp=std::unique_ptr<BaseAST>($2);
     $$=s;
-  }
+    }
 ;
 
 Exp

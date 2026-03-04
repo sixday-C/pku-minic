@@ -117,7 +117,9 @@ class StmtAST: public BaseAST{
         Assign,      // LVal = Exp;
         Exp,         // Exp; 或 ;
         Block,       // { ... }
-        Return       // return [Exp];
+        Return,      // return [Exp];
+        IfThen,      // if (Exp) Stmt  (没有 else,对应 OpenStmt)
+        IfElse,      // if (Exp) Stmt else Stmt (有 else,对应 ClosedStmt)
     };
     StmtType type;
 
@@ -127,6 +129,8 @@ class StmtAST: public BaseAST{
 
     std::unique_ptr<BaseAST> block;
 
+    std::unique_ptr<BaseAST> then_stmt;
+    std::unique_ptr<BaseAST> else_stmt;
 
 
 };

@@ -20,6 +20,9 @@ Value
     - LoadInst
 */
 
+class BasicBlock;
+class Instruction;
+class Value;
 //类型
 enum class Type{
     Int32,
@@ -45,7 +48,9 @@ enum class OpType{
     OR, // |    用来拼接||
     Alloc,
     Store,
-    Load
+    Load,
+    Br,
+    Jump
 };
 
 inline std::string opName(OpType op) {
@@ -67,6 +72,8 @@ inline std::string opName(OpType op) {
         case OpType::Alloc: return "alloc";
         case OpType::Store: return "store";
         case OpType::Load: return "load";
+        case OpType::Br: return "br";
+        case OpType::Jump: return "jump";
         default: return "unknown";
     }
 }
@@ -101,6 +108,25 @@ public:
         type = t;
         name = n;
     }
+};
+
+class BranchInst : public Instruction {
+public:
+    Value* condition;
+    BasicBlock* thenBlock;
+    BasicBlock* elseBlock;
+
+    BranchInst(Value* cond, BasicBlock* thenB, BasicBlock* elseB)
+        : Instruction(OpType::Br, Type::Void, ""), condition(cond), thenBlock(thenB), elseBlock(elseB) {}
+    std::string toString() const override ;
+};
+
+class JumpInst : public Instruction {
+public:
+    BasicBlock* targetBlock;
+    JumpInst(BasicBlock* target)
+        : Instruction(OpType::Jump, Type::Void, ""), targetBlock(target) {}
+    std::string toString() const override ;
 };
 
 class Binary: public Instruction {
@@ -156,6 +182,7 @@ public:
         return name + " = load " + address->name;
     }
 };
+
 class BasicBlock : public Value {
 public:
     std::list<std::unique_ptr<Instruction>> insts;
@@ -200,3 +227,11 @@ public:
         }
     }
 };
+
+inline std::string BranchInst::toString() const {
+    return "br " + condition->name + ", " + thenBlock->name + ", " + elseBlock->name;
+}
+
+inline std::string JumpInst::toString() const {
+    return "jump " + targetBlock->name;
+}

@@ -108,6 +108,12 @@ private:
         else if(inst.op==OpType::Load){
             visitLoad(static_cast<const LoadInst&>(inst));
         }
+        else if(inst.op==OpType::Br){
+            visitBranch(static_cast<const BranchInst&>(inst));
+        }
+        else if(inst.op==OpType::Jump){
+            visitJump(static_cast<const JumpInst&>(inst));
+        }
          else {
             visitBinary(static_cast<const Binary&>(inst));
         }
@@ -128,6 +134,18 @@ private:
         int offset2 = getStackOffset(inst.name);
         ss << "  lw t0, " << offset1 << "(sp)\n";
         ss << "  sw t0, " << offset2 << "(sp)\n"; 
+    }
+    void visitBranch(const BranchInst& inst) {
+        //br %cond, %then, %else
+        //bnez %cond, then
+        //j else
+        std::string condReg = getValRegFromStack(inst.condition,"t0");
+        ss << "  bnez " << condReg << ", "<< inst.thenBlock->name.substr(1) << "\n";
+        ss << "  j " << inst.elseBlock->name.substr(1) << "\n";
+    }
+    void visitJump(const JumpInst& inst) {
+        //jump %target
+        ss << "  j " << inst.targetBlock->name.substr(1) << "\n";
     }
     void visitBinary(const Binary& inst) {
         std::string rs1= getValRegFromStack(inst.lhs,"t0");

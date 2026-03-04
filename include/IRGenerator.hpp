@@ -13,11 +13,23 @@ private:
     Value* lastVal = nullptr;
 
     int tempCounter=0;
+    int blockCounter=0;//basicblock 命名计数器
 
     std::string newTemp() {
         return "%" + std::to_string(tempCounter++);
     }
-
+    std::string newBlockLabel(const std::string& prefix) {
+    return "%" + prefix + "_" + std::to_string(blockCounter++);
+}
+    bool blockHasTerminator(BasicBlock* block) {
+        if (block->insts.empty()) {
+            return false;
+        }
+        auto& lastInst = block->insts.back();
+        return lastInst->op == OpType::Br || 
+        lastInst->op == OpType::Jump ||
+        lastInst->op == OpType::Ret;
+    }
 public:
     IRGenerator() : program(std::make_unique<Program>()) {}
 
@@ -32,6 +44,7 @@ void visit(CompUnitAST* ast){
 
 void visit(FuncDefAST& ast) {
     tempCounter=0;
+    blockCounter=0;
     auto func=std::make_unique<Function>("@"+ast.ident);
     currentFunc=func.get();
     auto block=std::make_unique<BasicBlock>("%entry");
@@ -142,6 +155,78 @@ void visit(FuncDefAST& ast) {
                     currentBlock->addInst(retInst);
                     break;
                 }
+            case StmtAST::StmtType::IfThen://if (Exp) Stmt
+                {   
+                    //计算 Exp
+                    visit (*static_cast<ExpAST*>(ast.exp.get()));
+                    Value* condition=lastVal;
+
+                    //创建 then 和 end 块
+                    auto thenBlock=new BasicBlock(newBlockLabel("then"));
+                    auto endBlock=new BasicBlock(newBlockLabel("end"));
+
+                    //添加条件分支
+                    auto brInst=new BranchInst(condition, thenBlock, endBlock);
+                    currentBlock->addInst(brInst);
+
+                    //处理 then 块
+                    currentFunc->addBlock(thenBlock);
+                    currentBlock=thenBlock;
+                    visit(*static_cast<StmtAST*>(ast.then_stmt.get()));
+
+                    //then 块结束后跳转到 end 块 (如果没有终止指令就生成 jump)
+                    if (!blockHasTerminator(currentBlock)) {
+                        auto jumpToEnd=new JumpInst(endBlock);
+                        currentBlock->addInst(jumpToEnd);
+                    }
+
+                    //处理 end 块
+                    currentFunc->addBlock(endBlock);
+                    currentBlock=endBlock;
+
+                    break;
+                }
+            case StmtAST::StmtType::IfElse://if(Exp)Stmt else Stmt
+                {
+                    //计算 Exp
+                    visit (*static_cast<ExpAST*>(ast.exp.get()));
+                    Value* condition=lastVal;
+
+                    //创建 then、else 和 end 块
+                    auto thenBlock=new BasicBlock(newBlockLabel("then"));
+                    auto elseBlock=new BasicBlock(newBlockLabel("else"));
+                    auto endBlock=new BasicBlock(newBlockLabel("end"));
+
+                    //添加条件分支
+                    auto brInst=new BranchInst(condition, thenBlock, elseBlock);
+                    currentBlock->addInst(brInst);
+
+                    //处理 then 块
+                    currentFunc->addBlock(thenBlock);
+                    currentBlock=thenBlock;
+                    visit(*static_cast<StmtAST*>(ast.then_stmt.get()));
+
+                    //then 块结束后跳转到 end 块  //如果没有终止指令就生成 jump
+                    if (!blockHasTerminator(currentBlock)) {
+                    auto jumpToEnd=new JumpInst(endBlock);
+                    currentBlock->addInst(jumpToEnd);
+                    }
+                    //处理 else 块
+                    currentFunc->addBlock(elseBlock);
+                    currentBlock=elseBlock;
+                    visit(*static_cast<StmtAST*>(ast.else_stmt.get()));
+
+                    //else 块结束后跳转到 end 块  //如果没有终止指令就生成 jump
+                    if (!blockHasTerminator(currentBlock)) {
+                    auto jumpToEnd2=new JumpInst(endBlock);
+                    currentBlock->addInst(jumpToEnd2);
+                    }
+
+                    //处理 end 块
+                    currentFunc->addBlock(endBlock);
+                    currentBlock=endBlock;
+                    break;
+           }
         }
     }
     
@@ -216,29 +301,52 @@ void visit(FuncDefAST& ast) {
             visit(*eqExp);
         }
         else if(ast.land_exp && ast.eq_exp){
-            //左边
+            // a && b
+            //int result=0;
+            //if(a !=0 ){
+            //   result=(b !=0);
+            //   }  
+
+            //@land_result = alloc i32
+            auto resultAlloc = new AllocInst(sym_table.makeUniqueName("land_result"));   
+            currentBlock->addInst(resultAlloc);
+            
+            //%0 = load @a
             visit(*static_cast<LAndExpAST*>(ast.land_exp.get()));
             Value* left = lastVal;
 
-            //%1 = ne a, 0
-            auto zero1 = new Integer(0);
-            currentBlock->addValue(zero1);
-            auto cmp1 = new Binary(OpType::Ne, left, zero1, newTemp());
-            currentBlock->addInst(cmp1);
+            //%1 = ne %0, 0
+            auto zero = new Integer(0);
+            currentBlock->addValue(zero);
+            auto lhs_bool =new Binary(OpType::Ne, left, zero, newTemp());
+            currentBlock->addInst(lhs_bool);
 
-            //右边
+            //store 0, @land_result
+            auto storeZero = new StoreInst(zero, resultAlloc);
+            currentBlock->addInst(storeZero);
+
+            //创建 rightBlock 和 endBlock
+            auto rightBlock=new BasicBlock(newBlockLabel("land_right"));
+            auto endBlock=new BasicBlock(newBlockLabel("land_end"));
+
+            //br %1, rightBlock, endBlock
+            auto brInst=new BranchInst(lhs_bool, rightBlock, endBlock);
+            currentBlock->addInst(brInst);
+
+            //处理 rightBlock
+            currentFunc->addBlock(rightBlock);
+            currentBlock=rightBlock;
             visit(*static_cast<EqExpAST*>(ast.eq_exp.get()));
             Value* right = lastVal;
 
-            //%2 = ne b, 0
-            auto zero2 = new Integer(0);
-            currentBlock->addValue(zero2);
-            auto cmp2 = new Binary(OpType::Ne, right, zero2, newTemp());
-            currentBlock->addInst(cmp2);
+            //%2 = load @b
+            auto rhs_bool = new Binary(OpType::Ne, right, zero, newTemp());
+            currentBlock->addInst(rhs_bool);
 
-            auto inst = new Binary(OpType::AND, cmp1, cmp2, newTemp());
-                currentBlock->addInst(inst);
-                lastVal = inst; 
+            //%3 = ne %2, 0
+            auto storeRhs=new StoreInst(rhs_bool, resultAlloc);
+            currentBlock->addInst(storeRhs);
+
             }
         }
     
