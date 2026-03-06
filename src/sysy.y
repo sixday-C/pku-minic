@@ -32,7 +32,7 @@ using namespace std;
 %union {
   std::string *str_val;
   int int_val;
-   BaseAST *ast_val;//ast声明
+  BaseAST *ast_val;//ast声明
 }
 
 // lexer 返回的所有 token 种类的声明

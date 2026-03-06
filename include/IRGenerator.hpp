@@ -57,6 +57,9 @@ void visit(FuncDefAST& ast) {
     
     void visit(BlockAST& ast) {
         for(auto& item : ast.block_items){
+            if (blockHasTerminator(currentBlock)) {
+                break; 
+            }
             auto block_item = static_cast<BlockItemAST*>(item.get());
             if (block_item->decl) {
             auto decl = static_cast<DeclAST*>(block_item->decl.get());
@@ -153,6 +156,7 @@ void visit(FuncDefAST& ast) {
                     }
                     auto retInst = new ReturnInst(lastVal);
                     currentBlock->addInst(retInst);
+                    
                     break;
                 }
             case StmtAST::StmtType::IfThen://if (Exp) Stmt
@@ -296,7 +300,8 @@ void visit(FuncDefAST& ast) {
     }
     void visit(LAndExpAST& ast){
         if(ast.eq_exp && !ast.land_exp){
-            //拼接逻辑&&
+            // 基础情形：LAndExp -> EqExp
+            // 没有左递归时，直接计算当前 EqExp，结果放到 lastVal。
             auto eqExp= static_cast<EqExpAST*>(ast.eq_exp.get());
             visit(*eqExp);
         }
@@ -329,7 +334,7 @@ void visit(FuncDefAST& ast) {
             auto rightBlock=new BasicBlock(newBlockLabel("land_right"));
             auto endBlock=new BasicBlock(newBlockLabel("land_end"));
 
-            //br %1, rightBlock, endBlock
+            // 条件分支：left 真 -> rightBlock；left 假 -> endBlock（短路）。
             auto brInst=new BranchInst(lhs_bool, rightBlock, endBlock);
             currentBlock->addInst(brInst);
 
@@ -346,7 +351,18 @@ void visit(FuncDefAST& ast) {
             //%3 = ne %2, 0
             auto storeRhs=new StoreInst(rhs_bool, resultAlloc);
             currentBlock->addInst(storeRhs);
+            
+            // rightBlock 结束后跳转到汇合块。
+            currentBlock->addInst(new JumpInst(endBlock));
 
+            //生成并切换到汇合块。
+            currentFunc->addBlock(endBlock);
+            currentBlock = endBlock;
+
+            // 读取最终结果，作为整个 && 表达式的值。
+            auto finalRes = new LoadInst(resultAlloc, newTemp());
+            currentBlock->addInst(finalRes);
+            lastVal = finalRes;
             }
         }
     
@@ -356,26 +372,51 @@ void visit(FuncDefAST& ast) {
             visit(*landExp);
         }
         else if(ast.lor_exp && ast.land_exp){
-            //左边
+            // a || b
+            //int result=1;
+            //if(a ==0 ){
+            //   result=(b !=0);
+            //   }
+            auto resultAlloc = new AllocInst(sym_table.makeUniqueName("lor_result"));   
+            currentBlock->addInst(resultAlloc);
+
             visit(*static_cast<LOrExpAST*>(ast.lor_exp.get()));
             Value* left = lastVal;
-            //%1 = ne a, 0
-            auto zero1 = new Integer(0);
-            currentBlock->addValue(zero1);
-            auto cmp1 = new Binary(OpType::Ne, left, zero1, newTemp());
-            currentBlock->addInst(cmp1);
-            //右边
+
+            auto zero = new Integer(0);
+            currentBlock->addValue(zero);
+            auto lhs_bool =new Binary(OpType::Ne, left, zero, newTemp());
+            currentBlock->addInst(lhs_bool);
+
+            auto one = new Integer(1);
+            currentBlock->addValue(one);
+            currentBlock->addInst(new StoreInst(one, resultAlloc));
+
+            auto nextBlock=new BasicBlock(newBlockLabel("lor_next"));
+            auto endBlock=new BasicBlock(newBlockLabel("lor_end"));
+
+            auto brInst=new BranchInst(lhs_bool, endBlock, nextBlock);
+            currentBlock->addInst(brInst);
+
+
+            currentFunc->addBlock(nextBlock);
+            currentBlock=nextBlock;
             visit(*static_cast<LAndExpAST*>(ast.land_exp.get()));
             Value* right = lastVal;
-            //%2 = ne b, 0
-            auto zero2 = new Integer(0);
-            currentBlock->addValue(zero2);
-            auto cmp2 = new Binary(OpType::Ne, right, zero2, newTemp());
-            currentBlock->addInst(cmp2);
+
+            auto rhs_bool = new Binary(OpType::Ne, right, zero, newTemp());
+            currentBlock->addInst(rhs_bool);
+            auto storeRhs=new StoreInst(rhs_bool, resultAlloc);
+            currentBlock->addInst(storeRhs);
+            currentBlock->addInst(new JumpInst(endBlock));
+            currentFunc->addBlock(endBlock);
+            currentBlock = endBlock;
+
+            auto finalRes = new LoadInst(resultAlloc, newTemp());
+            currentBlock->addInst(finalRes);
+            lastVal = finalRes;
+
             
-            auto inst = new Binary(OpType::OR, cmp1, cmp2, newTemp());
-                currentBlock->addInst(inst);
-                lastVal = inst;
         }
     }
 
