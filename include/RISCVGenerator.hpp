@@ -9,7 +9,7 @@
 struct StackLayout {
     int S,R,A,total;
     int raOffset;
-    StackLayout() : A(0), S(0), R(0), total(0), raOffset(0) {}
+    StackLayout() : S(0), R(0), A(0), total(0), raOffset(0) {}
     StackLayout(int s, int r, int a, int t, int ra) 
         : S(s), R(r), A(a), total(t), raOffset(ra) {}
 };
@@ -58,6 +58,18 @@ StackLayout currentLayout;
 class RISCVGenerator {
 private:
     std::stringstream ss;
+    std::string currentFuncLabel;
+
+    std::string getAsmBlockLabel(const std::string& irBlockName) const {
+        std::string block = irBlockName;
+        if (!block.empty() && block[0] == '%') {
+            block = block.substr(1);
+        }
+        if (currentFuncLabel.empty()) {
+            return block;
+        }
+        return currentFuncLabel + "_" + block;
+    }
 public:
     std::string generate(const Program& prog) {
         ss.str(""); 
@@ -105,8 +117,9 @@ public:
         stackSize=0;
         currentLayout = computeLayout(func, stackMap);
         int total=currentLayout.total;
+        currentFuncLabel = func.name.substr(1);
         
-        ss<<func.name.substr(1) << ":\n";
+        ss<<currentFuncLabel << ":\n";
         if (total > 0) {
         if (total <= 2048) {
             ss << "  addi sp, sp, -" << total << "\n";
@@ -140,7 +153,7 @@ public:
 
 
     void visit(const BasicBlock& block) {
-        ss<<block.name.substr(1)<< ":\n";
+        ss<<getAsmBlockLabel(block.name)<< ":\n";
         for (const auto& inst : block.insts) {
             visit(*inst);
         }
@@ -193,12 +206,12 @@ public:
         //bnez %cond, then
         //j else
         std::string condReg = getValRegFromStack(inst.condition,"t0");
-        ss << "  bnez " << condReg << ", "<< inst.thenBlock->name.substr(1) << "\n";
-        ss << "  j " << inst.elseBlock->name.substr(1) << "\n";
+        ss << "  bnez " << condReg << ", "<< getAsmBlockLabel(inst.thenBlock->name) << "\n";
+        ss << "  j " << getAsmBlockLabel(inst.elseBlock->name) << "\n";
     }
     void visitJump(const JumpInst& inst) {
         //jump %target
-        ss << "  j " << inst.targetBlock->name.substr(1) << "\n";
+        ss << "  j " << getAsmBlockLabel(inst.targetBlock->name) << "\n";
     }
     void visitBinary(const Binary& inst) {
         std::string rs1= getValRegFromStack(inst.lhs,"t0");
