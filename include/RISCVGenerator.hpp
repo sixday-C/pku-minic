@@ -6,6 +6,55 @@
 #include <iostream>
 #include <vector>
 
+struct StackLayout {
+    int S,R,A,total;
+    int raOffset;
+    StackLayout() : A(0), S(0), R(0), total(0), raOffset(0) {}
+    StackLayout(int s, int r, int a, int t, int ra) 
+        : S(s), R(r), A(a), total(t), raOffset(ra) {}
+};
+
+StackLayout computeLayout(const Function& func,std::map<std::string, int>& stackMap){
+    int S=0,R=0,A=0;
+    int maxArgs=0;
+    bool hasCall=false;
+
+    //计算 call 的数量来决定 R的大小
+    for(const auto& block : func.blocks) {
+        for (const auto& inst : block->insts) {
+            if (inst->op == OpType::Call) {
+                hasCall=true;
+                auto callInst = static_cast<CallInst*>(inst.get());
+                maxArgs = std::max(maxArgs, (int)callInst->args.size());
+            }
+        }
+    }
+    //计算 A 的大小
+    A = std::max(0, maxArgs - 8) * 4;
+    //计算 R 的大小
+    R = hasCall ? 4 : 0;
+    //计算 S 的大小         分两部分：参数和 alloc/int32类型的指令
+    int offset=A;
+    for (const auto& param : func.params) {
+    stackMap[param.first] = offset; // 给参数名登记 offset
+    offset += 4;                   // 每个参数占 4 字节
+    }
+    for(const auto& block : func.blocks) {
+        for (const auto& inst : block->insts) {
+            if (inst->op == OpType::Alloc||inst->type == Type::Int32) {
+                stackMap[inst->name]=offset;
+                offset+=4; 
+            }
+        }
+    }
+    S=offset-A;
+    //计算栈上总分配 total 的大小
+    int total = (A + S + R + 15) / 16 * 16;
+    int raOffset = total - R; // ra 存在 R 区域的最后
+    return {S,R,A,total,raOffset};
+}
+StackLayout currentLayout;
+
 class RISCVGenerator {
 private:
     std::stringstream ss;
@@ -22,7 +71,6 @@ public:
         
         return ss.str();
     }
-private:
 
    std::string getValRegFromStack(Value* val, const std::string& tempReg) {
     std::string name=val->name;
@@ -50,45 +98,47 @@ private:
 
     std::map<std::string,int> stackMap;
     int stackSize=0;
-    void allocateStack(const Function& func){
-        int offset=0;
-        for(const auto& block : func.blocks) {
-            for (const auto& inst : block->insts) {
-                if (inst->op == OpType::Alloc) {
-                    stackMap[inst->name]=offset;
-                    offset+=4; 
-                }
-                else if (inst->type == Type::Int32) {
-                    stackMap[inst->name]=offset;
-                    offset+=4; 
-                }
-            }
-        }
-        stackSize = offset;
-        if(stackSize%16!=0){
-            stackSize= ((stackSize/16)+1)*16;
-        }
-    }
 
 
     void visit(const Function& func) {
         stackMap.clear();
         stackSize=0;
-        allocateStack(func);
+        currentLayout = computeLayout(func, stackMap);
+        int total=currentLayout.total;
+        
         ss<<func.name.substr(1) << ":\n";
-        if (stackSize > 0) {
-        if (stackSize <= 2048) {
-            ss << "  addi sp, sp, -" << stackSize << "\n";
+        if (total > 0) {
+        if (total <= 2048) {
+            ss << "  addi sp, sp, -" << total << "\n";
         } else {
-            ss << "  li t0, -" << stackSize << "\n";
+            ss << "  li t0, -" << total << "\n";
             ss << "  add sp, sp, t0\n";
         }
+    }
+        if (currentLayout.R > 0) {
+        ss << "  sw ra, " << currentLayout.raOffset << "(sp)\n";
+    }
+        for (size_t i = 0; i < func.params.size(); ++i) {
+            std::string paramName = func.params[i].first;
+            int offset = getStackOffset(paramName);
+
+            if (i < 8) {
+            std::string reg = "a" + std::to_string(i);
+            ss << "  sw " << reg << ", " << offset << "(sp)\n";
+            }
+            else {
+                int argOffset = currentLayout.total+(i - 8) * 4;
+                ss << "  lw t0, " << argOffset << "(sp)\n";
+                ss << "  sw t0, " << offset << "(sp)\n";
+            }
     }
         for(const auto& block : func.blocks) {
             visit(*block);
         }
 
     }
+
+
     void visit(const BasicBlock& block) {
         ss<<block.name.substr(1)<< ":\n";
         for (const auto& inst : block.insts) {
@@ -113,6 +163,9 @@ private:
         }
         else if(inst.op==OpType::Jump){
             visitJump(static_cast<const JumpInst&>(inst));
+        }
+        else if(inst.op==OpType::Call){
+            visitCall(static_cast<const CallInst&>(inst));
         }
          else {
             visitBinary(static_cast<const Binary&>(inst));
@@ -199,15 +252,53 @@ private:
 
     }
     void visitReturn(const ReturnInst& inst) {
-        std::string valReg = getValRegFromStack(inst.retValue,"a0");
-        if (stackSize > 0) {
-        if (stackSize <= 2048) {
-            ss << "  addi sp, sp, " << stackSize << "\n";
-        } else {
-            ss << "  li t0, " << stackSize << "\n";
-            ss << "  add sp, sp, t0\n";
+       if (inst.retValue) { 
+        std::string valReg = getValRegFromStack(inst.retValue, "a0");
+        if (valReg != "a0") {
+            ss << "  mv a0, " << valReg << "\n";
         }
+        }
+        if (currentLayout.R > 0) {
+        ss << "  lw ra, " << currentLayout.raOffset << "(sp)\n";
+    }
+        int total=currentLayout.total;
+        if (total > 0) {
+            if (total <= 2048) {
+            ss << "  addi sp, sp, " << total << "\n";
+            }
+            else {
+            ss << "  li t0, " << total << "\n";
+            ss << "  add sp, sp, t0\n";
+            }
     }
         ss << "  ret\n";
+    }
+    
+    void visitCall(const CallInst& inst) {
+        int argCount = inst.args.size();
+        for (int i = 0; i < std::min(argCount, 8); ++i) {
+
+        std::string targetReg = "a" + std::to_string(i);
+        std::string srcReg = getValRegFromStack(inst.args[i], targetReg);
+
+         if (srcReg != targetReg) {
+            ss << "  mv " << targetReg << ", " << srcReg << "\n";
+        }
+        }
+
+        if (argCount > 8) {
+        for (int i = 8; i < argCount; ++i) {
+            std::string srcReg = getValRegFromStack(inst.args[i], "t0");
+            int offset = (i - 8) * 4; 
+            ss << "  sw " << srcReg << ", " << offset << "(sp)\n";
+        }
+    }
+
+        ss << "  call " << inst.funcName.substr(1) << "\n";
+
+        if (inst.type != Type::Void) {
+            int offset = getStackOffset(inst.name);
+            ss << "  sw a0, " << offset << "(sp)\n";
+        }
     }
 };

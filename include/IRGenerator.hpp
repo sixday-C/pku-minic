@@ -38,22 +38,60 @@ public:
     }
 
 void visit(CompUnitAST* ast){
-    auto funcDef = static_cast<FuncDefAST*>(ast->func_def.get());
-    visit(*funcDef);
+    for (const auto& funcDef : ast->func_defs) {
+        visit(*static_cast<FuncDefAST*>(funcDef.get()));
+    }
 }
 
 void visit(FuncDefAST& ast) {
-    tempCounter=0;
-    blockCounter=0;
-    auto func=std::make_unique<Function>("@"+ast.ident);
-    currentFunc=func.get();
-    auto block=std::make_unique<BasicBlock>("%entry");
-    currentBlock=block.get();
-    func->addBlock(block.release());
+    tempCounter = 0;
+    blockCounter = 0;
+
+    //获取 AST 的函数，记录函数的类型
+    auto funcTypeNode = static_cast<FuncTypeAST*>(ast.func_type.get());
+    Type retType = (funcTypeNode->type == "void") ? Type::Void : Type::Int32;
+    
+    //创建 IR函数对象
+    auto func = std::make_unique<Function>("@" + ast.ident, retType);
+    currentFunc = func.get();
+    sym_table.insertFunc(ast.ident, retType);
+
+    //创建入口基本块
+    auto entryBlock = new BasicBlock("%entry");
+    currentBlock = entryBlock;
+    func->addBlock(entryBlock);
+
+    sym_table.enterScope();
+
+    //给函数参数命名 生成alloc和store指令，并插入符号表
+    for (auto &p : ast.func_fparams) {
+        auto paramAST = static_cast<FuncFParamAST*>(p.get());
+        std::string pName = "%" + paramAST->ident; 
+        
+        func->params.push_back({pName, Type::Int32});
+
+        auto alloc = new AllocInst(sym_table.makeUniqueName(paramAST->ident));
+        currentBlock->addInst(alloc);
+        auto store = new StoreInst(new Parameter(pName), alloc);
+        currentBlock->addInst(store);
+        
+        sym_table.insertVar(paramAST->ident, alloc);
+    }
+
     auto blockNode = static_cast<BlockAST*>(ast.block.get());
     visit(*blockNode);
-    program->funcs.push_back(std::move(func));
+
+    if (!blockHasTerminator(currentBlock)) {
+        if (retType == Type::Void) {
+            currentBlock->addInst(new ReturnInst(nullptr)); 
+        } else {
+            currentBlock->addInst(new ReturnInst(new Integer(0)));
+        }
     }
+
+    sym_table.exitScope();
+    program->funcs.push_back(std::move(func));
+}
     
     void visit(BlockAST& ast) {
         for(auto& item : ast.block_items){
@@ -153,9 +191,14 @@ void visit(FuncDefAST& ast) {
                     if(ast.exp){
                         auto exp= static_cast<ExpAST*>(ast.exp.get());
                         visit(*exp);
+                        auto retInst = new ReturnInst(lastVal);
+                        currentBlock->addInst(retInst);
                     }
-                    auto retInst = new ReturnInst(lastVal);
-                    currentBlock->addInst(retInst);
+                    else {
+                        auto retInst = new ReturnInst(nullptr);
+                        currentBlock->addInst(retInst);
+                    }
+                    
                     
                     break;
                 }
@@ -364,8 +407,7 @@ void visit(FuncDefAST& ast) {
             currentBlock->addInst(finalRes);
             lastVal = finalRes;
             }
-        }
-    
+    }
     void visit(LOrExpAST& ast){
         if(ast.land_exp && !ast.lor_exp){
             auto landExp= static_cast<LAndExpAST*>(ast.land_exp.get());
@@ -480,6 +522,20 @@ void visit(FuncDefAST& ast) {
             auto primaryExp= static_cast<PrimaryExpAST*>(ast.primary_exp.get());
             visit(*primaryExp);
             return;
+        }
+        else if(ast.type == UnaryExpAST::UnaryType::Call){
+            //函数调用
+            std::vector<Value*> args;
+            for(auto& arg : ast.func_args){
+                visit(*static_cast<ExpAST*>(arg.get()));
+                args.push_back(lastVal);
+            }
+            Type retType = sym_table.lookupFunc(ast.ident);
+            std::string callName = (retType == Type::Void) ? "" : newTemp();
+            auto callInst = new CallInst("@" + ast.ident, args, retType, callName);
+            currentBlock->addInst(callInst);
+            lastVal = callInst;
+            return ;
         }
         else if(ast.unary_exp){
             char op = ast.unary_op;

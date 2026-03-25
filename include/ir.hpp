@@ -50,7 +50,8 @@ enum class OpType{
     Store,
     Load,
     Br,
-    Jump
+    Jump,
+    Call//函数调用
 };
 
 inline std::string opName(OpType op) {
@@ -99,6 +100,12 @@ public:
     }
 };
 
+class Parameter : public Value {
+public:
+    Parameter(const std::string& n) { name = n; type = Type::Int32; }
+    std::string toString() const override { return name; }
+};
+
 class Instruction: public Value {
 public:
     OpType op;
@@ -144,10 +151,11 @@ public:
 class ReturnInst : public Instruction {
 public:
     Value* retValue;
-    ReturnInst(Value* v) 
+    ReturnInst(Value* v = nullptr) 
         : Instruction(OpType::Ret, Type::Void, ""), retValue(v) {}
 
     std::string toString() const override {
+        if (!retValue) return "ret";
         return "ret " + retValue->name;
     }
 };
@@ -182,6 +190,21 @@ public:
         return name + " = load " + address->name;
     }
 };
+class CallInst : public Instruction {
+public:
+    std::string funcName;
+    std::vector<Value*> args;
+    CallInst(const std::string& fName, const std::vector<Value*>& arguments, Type retType, const std::string& n)
+        : Instruction(OpType::Call, retType, n), funcName(fName), args(arguments) {}
+
+    std::string toString() const override {
+        std::string res = (type == Type::Void ? "" : name + " = ") + "call " + funcName + "(";
+        for (size_t i = 0; i < args.size(); ++i) {
+            res += args[i]->name + (i == args.size() - 1 ? "" : ", ");
+        }
+        return res + ")";
+    }
+};
 
 class BasicBlock : public Value {
 public:
@@ -205,12 +228,29 @@ public:
 class Function : public Value {
 public:
     std::list<std::unique_ptr<BasicBlock>> blocks;
-    Function(const std::string &n) {name=n;type=Type::Int32;}
+    std::vector<std::pair<std::string, Type>> params; // 存储参数名和类型
+    Type retType;
+
+    Function(const std::string &n, Type rt) : retType(rt) {
+        name = n;
+        type = rt;
+    }
+
     void addBlock(BasicBlock* block) {
         blocks.push_back(std::unique_ptr<BasicBlock>(block));
     }
+
     std::string toString() const override {
-        std::string result = "fun " + name + "(): i32 {\n";
+        // 生成形如: fun @foo(%a: i32, %b: i32): i32 {
+        std::string result = "fun " + name + "(";
+        for (size_t i = 0; i < params.size(); ++i) {
+            result += params[i].first + ": i32" + (i == params.size() - 1 ? "" : ", ");
+        }
+        result += ")";  
+        if(retType != Type::Void){
+            result += ": i32";
+        }
+        result += " {\n";
         for (const auto& block : blocks) {
             result += block->toString();
         }
@@ -218,6 +258,7 @@ public:
         return result;
     }
 };
+
 class Program {
 public:
     std::list<std::unique_ptr<Function>> funcs;

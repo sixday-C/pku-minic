@@ -6,15 +6,20 @@
 struct SymbolInfo{
     enum Type{
         CONST,
-        VAR
+        VAR,
+        FUNC
     }type;
     int const_value;
     Value* var_alloc;
     static SymbolInfo makeConst(int value){
-        return SymbolInfo{CONST,value,nullptr};
+        return SymbolInfo{CONST,value,nullptr,::Type::Void};
     }
     static SymbolInfo makeVar(Value* alloc){
-        return SymbolInfo{VAR,0,alloc};
+        return SymbolInfo{VAR,0,alloc,::Type::Void};
+    }
+    ::Type func_ret_type;
+    static SymbolInfo makeFunc(::Type ret_type){
+        return SymbolInfo{FUNC,0,nullptr,ret_type};
     }
 } ;
 
@@ -76,5 +81,15 @@ class SymbolTable{
             throw std::runtime_error("Symbol " + name + " is not a variable");
         }
         return info.var_alloc;
+    }
+    void insertFunc(const std::string& name,::Type ret_type){
+        scopes.front()[name] = SymbolInfo::makeFunc(ret_type);
+    }
+    ::Type lookupFunc(const std::string& name) const {
+        const SymbolInfo& info = lookup(name);
+        if (info.type != SymbolInfo::FUNC) {
+            throw std::runtime_error("Symbol " + name + " is not a function");
+        }
+        return info.func_ret_type;
     }
 };

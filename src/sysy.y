@@ -33,32 +33,49 @@ using namespace std;
   std::string *str_val;
   int int_val;
   BaseAST *ast_val;//ast声明
+  std::vector<std::unique_ptr<BaseAST>> *vec_val;
 }
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN LE GE EQ NE LOR LAND CONST IF ELSE
+%token INT VOID RETURN LE GE EQ NE LOR LAND CONST IF ELSE 
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
 
 // 非终结符的类型定义
-%type <ast_val> CompUnit FuncDef FuncType Block Stmt Number
+%type <ast_val> CompUnit FuncDef FuncType Block Stmt Number FuncFParam
 %type <ast_val> Exp PrimaryExp UnaryExp 
 %type <ast_val> MulExp AddExp
 %type <ast_val> LOrExp RelExp EqExp LAndExp 
 %type <ast_val> LVal
-%type <ast_val> BlockItemList BlockItem Decl ConstDecl BType ConstDef ConstInitVal ConstExp ConstDefList
-%type <ast_val> VarDecl VarDef InitVal VarDefList
+%type <ast_val> BlockItem Decl ConstDecl BType ConstDef ConstInitVal ConstExp 
+%type <ast_val> VarDecl VarDef InitVal 
 %type <ast_val> OpenStmt ClosedStmt SimpleStmt
+%type <vec_val> FuncDefList BlockItemList ConstDefList VarDefList FuncFParams FuncRParams
 
 %%
 
 CompUnit
+  : FuncDefList {
+    auto comp_unit = new CompUnitAST();
+    // 将收集到的 vector 直接 move 给 CompUnit
+    comp_unit->func_defs = std::move(*$1);
+    ast = std::unique_ptr<BaseAST>(comp_unit);
+    delete $1; // 别忘了释放临时创建的 vector 指针
+    $$ = comp_unit;
+  }
+  ;
+
+FuncDefList
   : FuncDef {
-    auto comp_unit = make_unique<CompUnitAST>();
-    comp_unit->func_def = unique_ptr<BaseAST>($1);
-    ast = move(comp_unit);
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | FuncDefList FuncDef {
+    $1->push_back(std::unique_ptr<BaseAST>($2));
+    $$ = $1;
   }
   ;
 
@@ -70,11 +87,50 @@ FuncDef
     ast->block = unique_ptr<BaseAST>($5);
     $$ = ast;
   } 
+  | FuncType IDENT '(' FuncFParams ')' Block {
+    auto ast = new FuncDefAST();
+    ast->func_type = unique_ptr<BaseAST>($1);
+    ast->ident = *unique_ptr<string>($2);
+    ast->func_fparams = std::move(*$4);
+    ast->block = unique_ptr<BaseAST>($6);
+    delete $4; 
+    $$ = ast;
+  }
   ;
 
-// 同上, 不再解释
+FuncFParams
+  : FuncFParam {
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | FuncFParams ',' FuncFParam {
+    $1->push_back(std::unique_ptr<BaseAST>($3));
+    $$ = $1;
+  }
+  ;
+
+FuncFParam
+  : BType IDENT {
+    $$ = new FuncFParamAST(std::unique_ptr<BaseAST>($1), 
+                           *std::unique_ptr<std::string>($2));
+  }
+  ;
+  FuncRParams
+  : Exp {
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | FuncRParams ',' Exp {
+    $1->push_back(std::unique_ptr<BaseAST>($3));
+    $$ = $1;
+  }
+  ;
+
 FuncType
   : INT { $$ = new FuncTypeAST("int"); }
+  | VOID { $$ = new FuncTypeAST("void"); }
   ;
 
 Block
@@ -83,19 +139,21 @@ Block
     $$=b;
   }
   |'{' BlockItemList '}' {
-    $$=$2;
+    auto b=new BlockAST();
+    b->block_items=std::move(*$2);
+    delete $2;
+    $$=b;
   }
   ;
 
 BlockItemList
   : BlockItem {
-    auto b=new BlockAST();
-    b->block_items.push_back(std::unique_ptr<BaseAST>($1));
-    $$=b;
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($1));
+    $$ = vec;
   }
   | BlockItemList BlockItem {
-    auto b=static_cast<BlockAST*>($1);
-    b->block_items.push_back(std::unique_ptr<BaseAST>($2));
+    $1->push_back(std::unique_ptr<BaseAST>($2));
     $$=$1;
   }
   ;
@@ -126,23 +184,23 @@ Decl
   ;
 
 VarDecl
-  : BType VarDefList ';'{
-    auto d=static_cast<VarDeclAST*>($2);
-    d->b_type=std::unique_ptr<BaseAST>($1);
-    $$=d;
+  : BType VarDefList ';' {
+    auto d = new VarDeclAST();
+    d->b_type = std::unique_ptr<BaseAST>($1);
+    d->var_defs = std::move(*$2); // 统一的 move 逻辑
+    delete $2;
+    $$ = d;
   }
   ;
   
 VarDefList
   : VarDef {
-    auto v=new VarDeclAST();
-    v->var_defs.push_back(std::unique_ptr<BaseAST>($1));
-    $$=v;
+    $$ = new std::vector<std::unique_ptr<BaseAST>>();
+    $$->push_back(std::unique_ptr<BaseAST>($1));
   }
   | VarDefList ',' VarDef {
-    auto v=static_cast<VarDeclAST*>($1);
-    v->var_defs.push_back(std::unique_ptr<BaseAST>($3));
-    $$=$1;
+    $1->push_back(std::unique_ptr<BaseAST>($3));
+    $$ = $1;
   }
   ;
 
@@ -170,22 +228,23 @@ InitVal
   ;
 
 ConstDecl
-  : CONST BType ConstDefList ';'{
-    auto d=static_cast<ConstDeclAST*>($3);
-    d->b_type=std::unique_ptr<BaseAST>($2);
-    $$=d;
+  : CONST BType ConstDefList ';' {
+    auto d = new ConstDeclAST();
+    d->b_type = std::unique_ptr<BaseAST>($2);
+    d->const_defs = std::move(*$3);
+    delete $3;
+    $$ = d;
   }
   ;
-  ConstDefList
+
+ConstDefList
   : ConstDef {
-    auto c=new ConstDeclAST();
-    c->const_defs.push_back(std::unique_ptr<BaseAST>($1));
-    $$=c;
+    $$ = new std::vector<std::unique_ptr<BaseAST>>();
+    $$->push_back(std::unique_ptr<BaseAST>($1));
   }
   | ConstDefList ',' ConstDef {
-    auto c=static_cast<ConstDeclAST*>($1);
-    c->const_defs.push_back(std::unique_ptr<BaseAST>($3));
-    $$=$1;
+    $1->push_back(std::unique_ptr<BaseAST>($3));
+    $$ = $1;
   }
   ;
 
@@ -453,24 +512,44 @@ UnaryExp
     auto u=new UnaryExpAST();
     u->primary_exp=std::unique_ptr<BaseAST>($1);
     u->unary_op = '\0';  // 没有一元操作符时设为空字符
+    u->type = UnaryExpAST::UnaryType::Primary;
+
     $$=u;
   }
+  | IDENT '(' ')' {
+    auto u=new UnaryExpAST();
+    u->ident = *std::unique_ptr<std::string>($1);
+    u->type = UnaryExpAST::UnaryType::Call;
+    $$=u;
+  }
+  | IDENT '(' FuncRParams ')' {
+    auto u=new UnaryExpAST();
+    u->ident = *std::unique_ptr<std::string>($1);
+    u->type = UnaryExpAST::UnaryType::Call;
+    u->func_args = std::move(*$3);
+    delete $3;
+    $$=u;
+  }
+
   | '+' UnaryExp {
     auto u=new UnaryExpAST();
     u->unary_op = '+';
     u->unary_exp=std::unique_ptr<BaseAST>($2);
+    u->type = UnaryExpAST::UnaryType::Op;
     $$=u;
   }
   | '-' UnaryExp {
     auto u=new UnaryExpAST();
     u->unary_op = '-';
     u->unary_exp=std::unique_ptr<BaseAST>($2);
+    u->type = UnaryExpAST::UnaryType::Op;
     $$=u; 
   }
   | '!' UnaryExp {
     auto u=new UnaryExpAST();
     u->unary_op = '!';
     u->unary_exp=std::unique_ptr<BaseAST>($2);
+    u->type = UnaryExpAST::UnaryType::Op;
     $$=u; 
   }
 ;

@@ -17,21 +17,29 @@ class BaseAST{
 
 class CompUnitAST: public BaseAST {
  public:
-  std::unique_ptr<BaseAST> func_def;
+  std::vector<std::unique_ptr<BaseAST>> func_defs;
 };
 
-class FuncDefAST: public BaseAST{
-    public:
+class FuncDefAST: public BaseAST {
+public:
     std::unique_ptr<BaseAST> func_type;
     std::string ident;
+    std::vector<std::unique_ptr<BaseAST>> func_fparams;  
     std::unique_ptr<BaseAST> block;
-    
+    FuncDefAST() = default;
 };
-
-class FuncTypeAST: public BaseAST{
-    public:
-    std::string type;
+class FuncTypeAST: public BaseAST {
+public:    std::string type;
     FuncTypeAST(std::string t):type(std::move(t)){}
+};  
+
+class FuncFParamAST: public BaseAST {
+public:
+    std::unique_ptr<BaseAST> b_type;
+    std::string ident;
+
+    FuncFParamAST(std::unique_ptr<BaseAST> b, std::string id)
+        : b_type(std::move(b)), ident(std::move(id)) {}
 };
 
 class BlockAST: public BaseAST{
@@ -276,14 +284,26 @@ class LOrExpAST: public BaseAST{
 
 class UnaryExpAST: public BaseAST{
     public:
+    enum class UnaryType {
+        Primary, // 基础表达式
+        Op,      // 一元前缀 (+, -, !)
+        Call     // 函数调用 (Lv8 新增)
+    };
+    UnaryType type;
+
     std::unique_ptr<BaseAST> primary_exp;
+
     std::unique_ptr<BaseAST> unary_exp;
     char unary_op; // '+', '-', '!' or '\0'
+
+    std::string ident; // 函数调用时的函数名
+    std::vector<std::unique_ptr<BaseAST>> func_args; // 函数调用
+
     int evalConst(SymbolTable& sym_table) const override {
-        if (primary_exp) {
+        if (type == UnaryType::Primary) {
             return primary_exp->evalConst(sym_table);
         }
-        else if (unary_exp) {
+        else if (type == UnaryType::Op) {
             int operand = unary_exp->evalConst(sym_table);
             if (unary_op == '-') {
                 return -operand;
@@ -293,7 +313,12 @@ class UnaryExpAST: public BaseAST{
                 return operand;
             }
         }
-        return 0; 
+        else if (type == UnaryType::Call) {
+            // SysY 规范明确规定：常量表达式中不能出现函数调用！
+            // 所以如果跑到这里，说明用户写了非法的常量表达式（比如 const int a = foo();）
+            throw std::runtime_error("Function call is not allowed in constant expression");
+        }
+        return 0; // or some default value
     }
 };
 
