@@ -31,15 +31,67 @@ private:
         lastInst->op == OpType::Ret;
     }
 public:
-    IRGenerator() : program(std::make_unique<Program>()) {}
+    IRGenerator() : program(std::make_unique<Program>()) {
+        setupLibraryFunctions();
+    }
+    void setupLibraryFunctions() {
+        auto addLib = [&](const std::string& name, Type ret, std::vector<Type> params = {}) {
+            sym_table.insertFunc(name, ret, params);
+            program->decls.push_back({"@" + name, ret, params});
+        };
+
+        addLib("getint", Type::Int32);
+        addLib("getch", Type::Int32);
+        addLib("getarray", Type::Int32, {Type::Pointer});
+        
+        addLib("putint", Type::Void, {Type::Int32});
+        addLib("putch", Type::Void, {Type::Int32});
+        addLib("putarray", Type::Void, {Type::Int32, Type::Pointer});
+        
+        addLib("starttime", Type::Void);
+        addLib("stoptime", Type::Void);
+    }
 
     std::unique_ptr<Program> getProgram() {
         return std::move(program);
     }
 
 void visit(CompUnitAST* ast){
-    for (const auto& funcDef : ast->func_defs) {
-        visit(*static_cast<FuncDefAST*>(funcDef.get()));
+    for (auto &item : ast->items) {
+    if (auto func_ptr = dynamic_cast<FuncDefAST*>(item.get())) {
+        visit(*func_ptr);
+    } 
+    else if (auto decl_ptr = dynamic_cast<DeclAST*>(item.get())) {
+        visitGlobalDecl(decl_ptr);
+    }
+}
+}
+
+void visitGlobalDecl(DeclAST* ast) {
+    //只需要插入符号表
+    if (ast->const_decl) {
+        auto const_decl = static_cast<ConstDeclAST*>(ast->const_decl.get());
+        for (auto& const_def : const_decl->const_defs) {
+            auto def = static_cast<ConstDefAST*>(const_def.get());
+            int val = def->const_init_val->evalConst(sym_table);
+            sym_table.insertConst(def->ident, val);
+        }
+    }
+
+    else if (ast->var_decl) {
+        auto var_decl = static_cast<VarDeclAST*>(ast->var_decl.get());
+        for (auto& var_def : var_decl->var_defs) {
+            auto def = static_cast<VarDefAST*>(var_def.get());
+
+            int initVal = 0;
+            if (def->init_val) {
+                initVal = static_cast<InitValAST*>(def->init_val.get())->exp->evalConst(sym_table);
+            }
+            auto globalVar = std::make_unique<GlobalAlloc>("@" + def->ident, initVal);
+            //插入变量到全局变量列表
+            sym_table.insertVar(def->ident, globalVar.get());
+            program->globalValues.push_back(std::move(globalVar));
+        }
     }
 }
 
@@ -48,7 +100,7 @@ void visit(FuncDefAST& ast) {
     blockCounter = 0;
 
     //获取 AST 的函数，记录函数的类型
-    auto funcTypeNode = static_cast<FuncTypeAST*>(ast.func_type.get());
+    auto funcTypeNode = static_cast<BTypeAST*>(ast.func_type.get());
     Type retType = (funcTypeNode->type == "void") ? Type::Void : Type::Int32;
     
     //创建 IR函数对象
@@ -109,6 +161,7 @@ void visit(FuncDefAST& ast) {
         }  
     }
     } 
+
     void visit(DeclAST& ast) {
         if (ast.const_decl) {
             auto const_decl = static_cast<ConstDeclAST*>(ast.const_decl.get());
@@ -127,8 +180,7 @@ void visit(FuncDefAST& ast) {
     }
     void visit(ConstDefAST& ast) {
         auto const_init_val = static_cast<ConstInitValAST*>(ast.const_init_val.get());
-        visit(*const_init_val);
-        int value = lastVal->type == Type::Int32 ? static_cast<Integer*>(lastVal)->value : 0;
+        int value = const_init_val->evalConst(sym_table);
         sym_table.insertConst(ast.ident, value);
     }
      void visit(ConstInitValAST& ast) {
@@ -577,14 +629,14 @@ void visit(FuncDefAST& ast) {
         else if (ast.lval){
             auto lval = static_cast<LValAST*>(ast.lval.get());
             const auto& info = sym_table.lookup(lval->ident);
-            if(info.type==SymbolInfo::CONST){
-                int const_value = info.const_value;
+            if(info.kind==SymbolInfo::CONST){
+                int const_value = info.const_value; 
                 auto num = new Integer(const_value);
                 currentBlock->addValue(num);
                 lastVal = num;
                 return;
             }
-            else if(info.type==SymbolInfo::VAR){
+            else if(info.kind==SymbolInfo::VAR){
                 //load 指令生成
                 auto loadInst = new LoadInst(info.var_alloc, newTemp());
                 currentBlock->addInst(loadInst);

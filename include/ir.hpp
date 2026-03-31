@@ -27,7 +27,8 @@ class Value;
 enum class Type{
     Int32,
     Void,
-    Label
+    Label,
+    Pointer
 };
 
 //操作类型
@@ -75,6 +76,7 @@ inline std::string opName(OpType op) {
         case OpType::Load: return "load";
         case OpType::Br: return "br";
         case OpType::Jump: return "jump";
+        case OpType::Call: return "call";
         default: return "unknown";
     }
 }
@@ -84,7 +86,26 @@ public:
     Type type;
     std::string name; 
     virtual std::string toString() const = 0;
+    virtual bool isGlobal() const { return false; }
 };
+
+//全局变量
+class GlobalAlloc : public Value {
+public:
+    int value; // 仅支持整数常量
+    GlobalAlloc(const std::string& n, int v) : value(v) {
+        name = n;
+        type = Type::Int32;
+    }
+    std::string toString() const override {
+        if (value == 0) {
+            return "global " + name + " = alloc i32, zeroinit\n";
+        }
+        return "global " + name + " = alloc i32, " + std::to_string(value) + "\n";
+    }
+    bool isGlobal() const override { return true; }
+};
+
 
 class Integer: public Value {
 public:
@@ -261,13 +282,44 @@ public:
 
 class Program {
 public:
+    struct DeclInfo {
+        std::string name;
+        Type retType;
+        std::vector<Type> paramTypes;
+    };
+    std::vector<DeclInfo> decls;
+
     std::list<std::unique_ptr<Function>> funcs;
+    std::list<std::unique_ptr<Value>> globalValues; // 用于存储全局变量和全局常量
     void toString(std::ostream& os) const {
+        for (const auto& d : decls) {
+            os << "decl " << d.name << "(";
+            for (size_t i = 0; i < d.paramTypes.size(); ++i) {
+                switch(d.paramTypes[i]){
+                    case Type::Int32: os << "i32"; break;
+                    case Type::Pointer: os << "*i32"; break;
+                    default: os << "unknown"; break;
+                }
+                if (i != d.paramTypes.size() - 1) os << ", ";
+            }
+            os << ")";
+            if (d.retType != Type::Void) os << ": i32";
+            os << "\n";
+        }
+        if (!decls.empty()) os << "\n";
+        for (const auto& def : globalValues) {
+            os << def->toString();
+        }
+        if (!globalValues.empty() && !funcs.empty()) {
+            os << "\n";
+        }
         for (const auto& func : funcs) {
             os << func->toString();
         }
     }
 };
+
+
 
 inline std::string BranchInst::toString() const {
     return "br " + condition->name + ", " + thenBlock->name + ", " + elseBlock->name;

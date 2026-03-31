@@ -22,7 +22,7 @@ using namespace std;
 // 我们需要返回一个字符串作为 AST, 所以我们把附加参数定义成字符串的智能指针
 // 解析完成后, 我们要手动修改这个参数, 把它设置成解析得到的字符串
 %parse-param { std::unique_ptr<BaseAST> &ast }
-
+%define parse.error verbose
 
 // yylval 的定义, 我们把它定义成了一个联合体 (union)
 // 因为 token 的值有的是字符串指针, 有的是整数
@@ -38,13 +38,13 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT VOID RETURN LE GE EQ NE LOR LAND CONST IF ELSE 
+%token INT VOID RETURN LE GE EQ NE LOR LAND CONST IF ELSE WHILE
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
 
 // 非终结符的类型定义
-%type <ast_val> CompUnit FuncDef FuncType Block Stmt Number FuncFParam
+%type <ast_val> CompUnit FuncDef Block Stmt Number FuncFParam 
 %type <ast_val> Exp PrimaryExp UnaryExp 
 %type <ast_val> MulExp AddExp
 %type <ast_val> LOrExp RelExp EqExp LAndExp 
@@ -52,42 +52,44 @@ using namespace std;
 %type <ast_val> BlockItem Decl ConstDecl BType ConstDef ConstInitVal ConstExp 
 %type <ast_val> VarDecl VarDef InitVal 
 %type <ast_val> OpenStmt ClosedStmt SimpleStmt
-%type <vec_val> FuncDefList BlockItemList ConstDefList VarDefList FuncFParams FuncRParams
+%type <vec_val> BlockItemList ConstDefList VarDefList FuncFParams FuncRParams
 
 %%
-
+//CompUnit 的递归定义
 CompUnit
-  : FuncDefList {
+  : Decl {
     auto comp_unit = new CompUnitAST();
-    // 将收集到的 vector 直接 move 给 CompUnit
-    comp_unit->func_defs = std::move(*$1);
+    comp_unit->items.push_back(std::unique_ptr<BaseAST>($1));
     ast = std::unique_ptr<BaseAST>(comp_unit);
-    delete $1; // 别忘了释放临时创建的 vector 指针
+    $$ = comp_unit;
+  }
+  | FuncDef {
+    auto comp_unit = new CompUnitAST();
+    comp_unit->items.push_back(std::unique_ptr<BaseAST>($1));
+    ast = std::unique_ptr<BaseAST>(comp_unit);
+    $$ = comp_unit;
+  }
+  | CompUnit FuncDef {
+    auto comp_unit = static_cast<CompUnitAST*>($1);
+    comp_unit->items.push_back(std::unique_ptr<BaseAST>($2));
+    $$ = comp_unit;
+  }
+  | CompUnit Decl {
+    auto comp_unit = static_cast<CompUnitAST*>($1);
+    comp_unit->items.push_back(std::unique_ptr<BaseAST>($2));
     $$ = comp_unit;
   }
   ;
 
-FuncDefList
-  : FuncDef {
-    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
-    vec->push_back(std::unique_ptr<BaseAST>($1));
-    $$ = vec;
-  }
-  | FuncDefList FuncDef {
-    $1->push_back(std::unique_ptr<BaseAST>($2));
-    $$ = $1;
-  }
-  ;
-
 FuncDef
-  : FuncType IDENT '(' ')' Block {
+  : BType IDENT '(' ')' Block {
     auto ast = new FuncDefAST();
     ast->func_type = unique_ptr<BaseAST>($1);
     ast->ident = *unique_ptr<string>($2);
     ast->block = unique_ptr<BaseAST>($5);
     $$ = ast;
   } 
-  | FuncType IDENT '(' FuncFParams ')' Block {
+  | BType IDENT '(' FuncFParams ')' Block {
     auto ast = new FuncDefAST();
     ast->func_type = unique_ptr<BaseAST>($1);
     ast->ident = *unique_ptr<string>($2);
@@ -128,9 +130,9 @@ FuncFParam
   }
   ;
 
-FuncType
-  : INT { $$ = new FuncTypeAST("int"); }
-  | VOID { $$ = new FuncTypeAST("void"); }
+BType
+  : INT { $$ = new BTypeAST("int"); }
+  | VOID { $$ = new BTypeAST("void"); }
   ;
 
 Block
@@ -248,11 +250,6 @@ ConstDefList
   }
   ;
 
-BType
-  : INT {
-    $$ = new BTypeAST("int");
-  }
-  ;
 
 ConstDef
   : IDENT '=' ConstInitVal {
@@ -339,6 +336,14 @@ SimpleStmt
     auto s=new StmtAST();
     s->type=StmtAST::StmtType::Block;
     s->block=std::unique_ptr<BaseAST>($1);
+    $$=s;
+  }
+  | WHILE '(' Exp ')' Stmt {
+    auto s=new StmtAST();
+    s->type=StmtAST::StmtType::While;
+    s->exp=std::unique_ptr<BaseAST>($3);
+    s->then_stmt=std::unique_ptr<BaseAST>($5); // while 的循环体语句
+    s->else_stmt=nullptr; // while 没有 else 语句
     $$=s;
   }
   | RETURN Exp ';' {

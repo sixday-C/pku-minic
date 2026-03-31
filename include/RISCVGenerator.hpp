@@ -59,6 +59,7 @@ class RISCVGenerator {
 private:
     std::stringstream ss;
     std::string currentFuncLabel;
+    bool isFirstBlockInCurrentFunc = false;
 
     std::string getAsmBlockLabel(const std::string& irBlockName) const {
         std::string block = irBlockName;
@@ -72,22 +73,56 @@ private:
     }
 public:
     std::string generate(const Program& prog) {
-        ss.str(""); 
-
-        ss << "  .text\n";
-        ss << "  .globl main\n";
-
-        for (const auto& func : prog.funcs) {
-            visit(*func);
+    ss.str(""); 
+    ss.clear();
+    
+    // --- 第一步：处理全局变量（数据段） ---
+    if (!prog.globalValues.empty()) {
+        ss << "  .data\n"; // 告诉汇编器，接下来的东西放数据段
+        for (const auto& val : prog.globalValues) {
+            // 晶，这里要把 Value 强转成你定义的 GlobalAlloc
+            auto* global = static_cast<GlobalAlloc*>(val.get());
+            
+            // 去掉名字开头的 '@'
+            std::string label = global->name.substr(1);
+            
+            ss << "  .globl " << label << "\n"; // 声明全局符号
+            ss << label << ":\n";               // 变量标签
+            
+            // 根据初始值决定是用 .word 还是 .zero
+            if (global->value == 0) {
+                ss << "  .zero 4\n";            // 初始化为 0，占 4 字节
+            } else {
+                ss << "  .word " << global->value << "\n"; // 存入具体的整数值
+            }
+            ss << "\n";
         }
-        
-        return ss.str();
     }
+    
+
+    // --- 第二步：处理函数定义（代码段） ---
+    for (const auto& func : prog.funcs) {
+        if (func->blocks.empty()) { 
+            continue; 
+        }
+        ss << "  .text\n"; // 切换回代码段
+        ss << "  .globl " << func->name.substr(1) << "\n";
+        visit(*func);
+        ss << "\n";
+    }
+    
+    return ss.str();
+}
 
    std::string getValRegFromStack(Value* val, const std::string& tempReg) {
     std::string name=val->name;
     if(name=="0"){
         return "x0";
+    }
+    if (val->isGlobal()) {
+        ss << "  la " << tempReg << ", " << name.substr(1) << "\n";
+        ss << "  lw " << tempReg << ", 0(" << tempReg << ")\n";
+        return tempReg;
     }
     if(name[0]=='@'||name[0]=='%'){//变量或临时变量
         int offset = getStackOffset(name);
@@ -115,6 +150,7 @@ public:
     void visit(const Function& func) {
         stackMap.clear();
         stackSize=0;
+        isFirstBlockInCurrentFunc = true;
         currentLayout = computeLayout(func, stackMap);
         int total=currentLayout.total;
         currentFuncLabel = func.name.substr(1);
@@ -153,7 +189,11 @@ public:
 
 
     void visit(const BasicBlock& block) {
-        ss<<getAsmBlockLabel(block.name)<< ":\n";
+        bool isEntryBlock = (block.name == "%entry" || block.name == "entry");
+        if (!(isFirstBlockInCurrentFunc && isEntryBlock)) {
+            ss<<getAsmBlockLabel(block.name)<< ":\n";
+        }
+        isFirstBlockInCurrentFunc = false;
         for (const auto& inst : block.insts) {
             visit(*inst);
         }
@@ -188,18 +228,36 @@ public:
         //不生成具体指令
     }
     void visitStore(const StoreInst& inst) {
-        //store 10,@x.  把 10加载到临时寄存器，然后存到栈上
-        std::string valReg = getValRegFromStack(inst.value,"t0");
+    //store 10,@x.  把 10加载到临时寄存器，然后存到栈上
+    // 准备好要存的值
+    std::string valReg = getValRegFromStack(inst.value, "t0");
+
+    if (inst.address->isGlobal()) {
+        // 存入全局变量：la -> sw
+        ss << "  la t1, " << inst.address->name.substr(1) << "\n";
+        ss << "  sw " << valReg << ", 0(t1)\n";
+    } else {
+        // 存入局部变量：sw offset(sp)
         int offset = getStackOffset(inst.address->name);
         ss << "  sw " << valReg << ", " << offset << "(sp)\n";
     }
+    }
+    
     void visitLoad(const LoadInst& inst) {
-        //%0 = load @x
-        //从栈上加载到一个临时寄存器
-        int offset1 = getStackOffset(inst.address->name);
-        int offset2 = getStackOffset(inst.name);
-        ss << "  lw t0, " << offset1 << "(sp)\n";
-        ss << "  sw t0, " << offset2 << "(sp)\n"; 
+        //%0=load @x. 
+    // 目标寄存器 (如 %0) 肯定在栈上
+    int offsetDest = getStackOffset(inst.name);
+
+    if (inst.address->isGlobal()) {
+        // 全局变量：la -> lw
+        ss << "  la t0, " << inst.address->name.substr(1) << "\n";
+        ss << "  lw t0, 0(t0)\n";
+    } else {
+        // 局部变量：从栈上 lw
+        int offsetSrc = getStackOffset(inst.address->name);
+        ss << "  lw t0, " << offsetSrc << "(sp)\n";
+    }
+    ss << "  sw t0, " << offsetDest << "(sp)\n"; 
     }
     void visitBranch(const BranchInst& inst) {
         //br %cond, %then, %else

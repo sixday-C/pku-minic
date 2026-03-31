@@ -17,7 +17,7 @@ class BaseAST{
 
 class CompUnitAST: public BaseAST {
  public:
-  std::vector<std::unique_ptr<BaseAST>> func_defs;
+  std::vector<std::unique_ptr<BaseAST>> items;
 };
 
 class FuncDefAST: public BaseAST {
@@ -28,10 +28,7 @@ public:
     std::unique_ptr<BaseAST> block;
     FuncDefAST() = default;
 };
-class FuncTypeAST: public BaseAST {
-public:    std::string type;
-    FuncTypeAST(std::string t):type(std::move(t)){}
-};  
+
 
 class FuncFParamAST: public BaseAST {
 public:
@@ -128,6 +125,7 @@ class StmtAST: public BaseAST{
         Return,      // return [Exp];
         IfThen,      // if (Exp) Stmt  (没有 else,对应 OpenStmt)
         IfElse,      // if (Exp) Stmt else Stmt (有 else,对应 ClosedStmt)
+        While         // while (Exp) Stmt
     };
     StmtType type;
 
@@ -137,7 +135,7 @@ class StmtAST: public BaseAST{
 
     std::unique_ptr<BaseAST> block;
 
-    std::unique_ptr<BaseAST> then_stmt;
+    std::unique_ptr<BaseAST> then_stmt; //也可以用做 while 的循环体语句
     std::unique_ptr<BaseAST> else_stmt;
 
 
