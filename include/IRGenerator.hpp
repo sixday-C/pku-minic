@@ -8,6 +8,11 @@ public:
     std::unique_ptr<Program> program;
     SymbolTable sym_table;
 private:
+    struct LoopContext {
+        BasicBlock* condBlock;
+        BasicBlock* endBlock;
+    };
+    std::vector<LoopContext> loopStack;
     Function* currentFunc=nullptr;
     BasicBlock* currentBlock=nullptr;
     Value* lastVal = nullptr;
@@ -326,6 +331,52 @@ void visit(FuncDefAST& ast) {
                     currentBlock=endBlock;
                     break;
            }
+            case StmtAST::StmtType::While:
+            {
+            auto condBlock = new BasicBlock(newBlockLabel("while_cond"));
+            auto bodyBlock = new BasicBlock(newBlockLabel("while_body"));
+            auto endBlock = new BasicBlock(newBlockLabel("while_end"));
+            currentBlock->addInst(new JumpInst(condBlock));
+            currentFunc->addBlock(condBlock);
+            currentBlock = condBlock;
+            visit(*static_cast<ExpAST*>(ast.exp.get()));
+            Value* condition = lastVal;
+
+            currentBlock->addInst(new BranchInst(condition, bodyBlock, endBlock));
+            loopStack.push_back({condBlock, endBlock});
+
+            currentFunc->addBlock(bodyBlock);
+            currentBlock = bodyBlock;
+            visit(*static_cast<StmtAST*>(ast.while_stmt.get()));
+
+            if (!blockHasTerminator(currentBlock)) {
+            currentBlock->addInst(new JumpInst(condBlock));
+            }
+            loopStack.pop_back();
+            currentFunc->addBlock(endBlock);
+            currentBlock = endBlock; 
+            break;
+            }
+           case StmtAST::StmtType::Break: {
+            if (loopStack.empty()) {
+                std::cerr << "语义错误：'break' 语句不在循环内！" << std::endl;
+                exit(1); 
+            }
+            BasicBlock* target = loopStack.back().endBlock;
+            currentBlock->addInst(new JumpInst(target));
+            break;
+        }
+
+        case StmtAST::StmtType::Continue: {
+            if (loopStack.empty()) {
+                std::cerr << "语义错误：'continue' 语句不在循环内！" << std::endl;
+                exit(1);
+            }
+
+            BasicBlock* target = loopStack.back().condBlock;
+            currentBlock->addInst(new JumpInst(target));
+            break;
+        }
         }
     }
     

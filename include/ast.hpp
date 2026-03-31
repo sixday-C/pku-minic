@@ -125,7 +125,9 @@ class StmtAST: public BaseAST{
         Return,      // return [Exp];
         IfThen,      // if (Exp) Stmt  (没有 else,对应 OpenStmt)
         IfElse,      // if (Exp) Stmt else Stmt (有 else,对应 ClosedStmt)
-        While         // while (Exp) Stmt
+        While,        // while (Exp) Stmt
+        Break,
+        Continue
     };
     StmtType type;
 
@@ -135,10 +137,12 @@ class StmtAST: public BaseAST{
 
     std::unique_ptr<BaseAST> block;
 
-    std::unique_ptr<BaseAST> then_stmt; //也可以用做 while 的循环体语句
+    std::unique_ptr<BaseAST> then_stmt; 
     std::unique_ptr<BaseAST> else_stmt;
 
-
+    std::unique_ptr<BaseAST> while_stmt;
+    std::unique_ptr<BaseAST> break_stmt;
+    std::unique_ptr<BaseAST> continue_stmt;
 };
 
 class ExpAST: public BaseAST{

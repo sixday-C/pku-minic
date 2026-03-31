@@ -38,7 +38,7 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT VOID RETURN LE GE EQ NE LOR LAND CONST IF ELSE WHILE
+%token INT VOID RETURN LE GE EQ NE LOR LAND CONST IF ELSE WHILE BREAK CONTINUE
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
@@ -338,12 +338,21 @@ SimpleStmt
     s->block=std::unique_ptr<BaseAST>($1);
     $$=s;
   }
+  | BREAK ';' {
+    auto s=new StmtAST();
+    s->type=StmtAST::StmtType::Break;
+    $$=s;
+  }
+  | CONTINUE ';' {
+    auto s=new StmtAST();
+    s->type=StmtAST::StmtType::Continue;
+    $$=s;
+  }
   | WHILE '(' Exp ')' Stmt {
     auto s=new StmtAST();
     s->type=StmtAST::StmtType::While;
     s->exp=std::unique_ptr<BaseAST>($3);
-    s->then_stmt=std::unique_ptr<BaseAST>($5); // while 的循环体语句
-    s->else_stmt=nullptr; // while 没有 else 语句
+    s->while_stmt=std::unique_ptr<BaseAST>($5); 
     $$=s;
   }
   | RETURN Exp ';' {
