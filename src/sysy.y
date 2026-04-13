@@ -53,6 +53,7 @@ using namespace std;
 %type <ast_val> VarDecl VarDef InitVal 
 %type <ast_val> OpenStmt ClosedStmt SimpleStmt
 %type <vec_val> BlockItemList ConstDefList VarDefList FuncFParams FuncRParams
+%type <vec_val> ConstInitValList InitValList
 
 %%
 //CompUnit 的递归定义
@@ -208,24 +209,65 @@ VarDefList
 
 VarDef
   : IDENT {
-    auto v=new VarDefAST();
-    v->ident=*unique_ptr<string>($1);
-    v->init_val=nullptr;
-    $$=v;
-  }
+      auto v = new VarDefAST();
+      v->ident = *unique_ptr<string>($1);
+      v->array_size = nullptr; // 普通变量
+      v->init_val = nullptr;
+      $$ = v;
+    }
+  | IDENT '[' ConstExp ']' {
+      auto v = new VarDefAST();
+      v->ident = *unique_ptr<string>($1);
+      v->array_size = unique_ptr<BaseAST>($3); // 数组变量
+      v->init_val = nullptr;
+      $$ = v;
+    }
   | IDENT '=' InitVal {
-    auto v=new VarDefAST();
-    v->ident=*unique_ptr<string>($1);
-    v->init_val=std::unique_ptr<BaseAST>($3);
-    $$=v;
-  }
+      auto v = new VarDefAST();
+      v->ident = *unique_ptr<string>($1);
+      v->array_size = nullptr;
+      v->init_val = unique_ptr<BaseAST>($3);
+      $$ = v;
+    }
+  | IDENT '[' ConstExp ']' '=' InitVal {
+      auto v = new VarDefAST();
+      v->ident = *unique_ptr<string>($1);
+      v->array_size = unique_ptr<BaseAST>($3);
+      v->init_val = unique_ptr<BaseAST>($6);
+      $$ = v;
+    }
   ;
 
 InitVal
-  : Exp{
-    auto i=new InitValAST();
-    i->exp=std::unique_ptr<BaseAST>($1);
-    $$=i;
+  : Exp {
+    auto i = new InitValAST();
+    i->is_list = false;
+    i->exp = unique_ptr<BaseAST>($1);
+    $$ = i;
+  }
+  | '{' '}' {
+    auto i = new InitValAST();
+    i->is_list = true; 
+    $$ = i;
+  }
+  | '{' InitValList '}' {
+    auto i = new InitValAST();
+    i->is_list = true;
+    i->init_list = std::move(*$2);
+    delete $2; 
+    $$ = i;
+  }
+  ;
+
+InitValList
+  : InitVal {
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | InitValList ',' InitVal {
+    $1->push_back(std::unique_ptr<BaseAST>($3));
+    $$ = $1;
   }
   ;
 
@@ -258,13 +300,46 @@ ConstDef
     c->const_init_val=std::unique_ptr<BaseAST>($3);
     $$=c;
   }
+  | IDENT '[' ConstExp ']' '=' ConstInitVal {
+    auto c=new ConstDefAST();
+    c->ident=*unique_ptr<string>($1);
+    c->array_size=std::unique_ptr<BaseAST>($3);
+    c->const_init_val=std::unique_ptr<BaseAST>($6);
+    $$=c;
+  }
   ;
 
+// 变量初始化
 ConstInitVal
-  : ConstExp{
-    auto c=new ConstInitValAST();
-    c->const_exp=std::unique_ptr<BaseAST>($1);
-    $$=c;
+  : ConstExp {
+    auto i = new ConstInitValAST();
+    i->is_list = false;
+    i->const_exp = unique_ptr<BaseAST>($1);
+    $$ = i;
+  }
+  | '{' '}' {
+    auto i = new ConstInitValAST();
+    i->is_list = true; // 空列表 {}
+    $$ = i;
+  }
+  | '{' ConstInitValList '}' {
+    auto i = new ConstInitValAST();
+    i->is_list = true;
+    i->init_list = std::move(*$2);
+    delete $2; // 释放辅助用的 vector 指针
+    $$ = i;
+  }
+  ;
+
+ConstInitValList
+  : ConstInitVal {
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | ConstInitValList ',' ConstInitVal {
+    $1->push_back(std::unique_ptr<BaseAST>($3));
+    $$ = $1;
   }
   ;
 
@@ -574,9 +649,16 @@ Number
   ;
 LVal
   : IDENT {
-    auto l=new LValAST();
-    l->ident=*std::unique_ptr<std::string>($1);
-    $$=l;
+    auto l = new LValAST();
+    l->ident = *unique_ptr<string>($1);
+    l->index = nullptr; 
+    $$ = l;
+  }
+  | IDENT '[' Exp ']' {
+    auto l = new LValAST();
+    l->ident = *unique_ptr<string>($1);
+    l->index = unique_ptr<BaseAST>($3); 
+    $$ = l;
   }
   ;
 

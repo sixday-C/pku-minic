@@ -73,29 +73,70 @@ void visit(CompUnitAST* ast){
 }
 
 void visitGlobalDecl(DeclAST* ast) {
-    //只需要插入符号表
+    //全局常量 const int a,b...;
     if (ast->const_decl) {
         auto const_decl = static_cast<ConstDeclAST*>(ast->const_decl.get());
-        for (auto& const_def : const_decl->const_defs) {
-            auto def = static_cast<ConstDefAST*>(const_def.get());
-            int val = def->const_init_val->evalConst(sym_table);
-            sym_table.insertConst(def->ident, val);
+        for (auto& const_def_base : const_decl->const_defs) {
+            auto def = static_cast<ConstDefAST*>(const_def_base.get());
+            
+            if (def->array_size) { // const int a [12] = {...};
+                int size = def->array_size->evalConst(sym_table);
+                std::vector<int> values;
+                //初始值先填满
+                auto init_list = static_cast<ConstInitValAST*>(def->const_init_val.get());
+                for (auto &item : init_list->init_list) {
+                    values.push_back(item->evalConst(sym_table));
+                }
+                // 补零
+                while (values.size() < (size_t)size) values.push_back(0);
+                //生成 IR 里的全局分配对象
+                auto gConst = std::make_unique<GlobalAlloc>("@" + def->ident, values, size);
+                //存入符号表：记住名字、地址和长度
+                sym_table.insertConstArray(def->ident, gConst.get(), size);
+                //存入程序集：确保最后打印 IR 时会有这一行 global 定义
+                program->globalValues.push_back(std::move(gConst));
+            } 
+            else { 
+                // const int a=5,直接算出来存符号表即可，不需要生成 global 指令
+                int val = def->const_init_val->evalConst(sym_table);
+                sym_table.insertConst(def->ident, val);
+            }
         }
     }
-
+    // 全局变量 int a,b...; 或者 int a[12]
     else if (ast->var_decl) {
         auto var_decl = static_cast<VarDeclAST*>(ast->var_decl.get());
-        for (auto& var_def : var_decl->var_defs) {
-            auto def = static_cast<VarDefAST*>(var_def.get());
-
-            int initVal = 0;
-            if (def->init_val) {
-                initVal = static_cast<InitValAST*>(def->init_val.get())->exp->evalConst(sym_table);
+        for (auto& var_def_base : var_decl->var_defs) {
+            auto def = static_cast<VarDefAST*>(var_def_base.get());
+            
+            if (def->array_size) { // int a [12] = {...};
+                int size = def->array_size->evalConst(sym_table);
+                std::vector<int> values;
+                //初始值先填满
+                if (def->init_val) {
+                    auto init_ast = static_cast<InitValAST*>(def->init_val.get());
+                    for (auto &item : init_ast->init_list) {
+                        values.push_back(item->evalConst(sym_table));
+                    }
+                }
+                // 补零
+                while (values.size() < (size_t)size) values.push_back(0);
+                //生成 IR 里的全局分配对象
+                auto gVar = std::make_unique<GlobalAlloc>("@" + def->ident, values, size);
+                //存入符号表：记住名字、地址和长度
+                sym_table.insertVar(def->ident, gVar.get(), true, size);
+                //存入程序集：确保最后打印 IR 时会有这一行 global 定义
+                program->globalValues.push_back(std::move(gVar));
+            } 
+            else { // int a=5;
+                int initVal = 0;
+                if (def->init_val) {
+                    initVal = static_cast<InitValAST*>(def->init_val.get())->exp->evalConst(sym_table);
+                }
+                auto gVar = std::make_unique<GlobalAlloc>("@" + def->ident, initVal);
+                sym_table.insertVar(def->ident, gVar.get(), false);
+                program->globalValues.push_back(std::move(gVar));
             }
-            auto globalVar = std::make_unique<GlobalAlloc>("@" + def->ident, initVal);
-            //插入变量到全局变量列表
-            sym_table.insertVar(def->ident, globalVar.get());
-            program->globalValues.push_back(std::move(globalVar));
         }
     }
 }
@@ -200,33 +241,118 @@ void visit(FuncDefAST& ast) {
             visit(*varDef);
         }
     }
+
+    //局部变量定义
     void visit(VarDefAST& ast) {
-        std::string uniqueName = sym_table.makeUniqueName(ast.ident);
+    std::string uniqueName = sym_table.makeUniqueName(ast.ident);
+    
+    if (ast.array_size) { // int a[12] = {...};
+        int size = ast.array_size->evalConst(sym_table);
+        auto allocInst = new AllocInst(uniqueName, size); 
+        currentBlock->addInst(allocInst);
+        sym_table.insertVar(ast.ident, allocInst, true); 
+
+        if (ast.init_val) {//int arr[3] = {1,2,3}; 有初始值列表 也可能是 int arr[3] = {1,a+3}; 需要 visit
+            auto init_ast = static_cast<InitValAST*>(ast.init_val.get());
+            
+        /*  %0 = getelemptr @arr_0, 0  // 找 0 号房
+            store 1, %0                // 存数字 1
+            %1 = getelemptr @arr_0, 1  // 找 1 号房
+            store 2, %1                // 存数字 2
+            %2 = getelemptr @arr_0, 2  // 找 2 号房
+            store 3, %2                // 存数字 3
+         */
+
+            for (size_t i = 0; i < init_ast->init_list.size(); ++i) {
+                // 访问初始值表达式（可能是a+3，所以要 visit）
+                auto sub_init = static_cast<InitValAST*>(init_ast->init_list[i].get());
+                visit(*static_cast<ExpAST*>(sub_init->exp.get())); 
+                Value* val = lastVal;//拿到结果
+                // 寻址并存入
+                auto gep = new GetElemPtrInst(allocInst, new Integer(i), newTemp());
+                currentBlock->addInst(gep);
+                currentBlock->addInst(new StoreInst(val, gep));
+            }
+            // 2. 补零：处理剩下的空间
+            for (size_t i = init_ast->init_list.size(); i < (size_t)size; ++i) {
+                auto gep = new GetElemPtrInst(allocInst, new Integer(i), newTemp());
+                currentBlock->addInst(gep);
+                currentBlock->addInst(new StoreInst(new Integer(0), gep));
+            }
+        }
+    } 
+
+    else { // int a=5; 或者 int a; 后者没有初始值
+        /*
+        %0 = alloc i32               // 生成分配指令，分配一个 i32 大小的空间，名字叫 %0
+        store 5, %0                  // 生成存储指令，把数字 5 存到 %0 里
+        */
         auto allocInst = new AllocInst(uniqueName);
         currentBlock->addInst(allocInst);
-        sym_table.insertVar(ast.ident, allocInst);
-
+        sym_table.insertVar(ast.ident, allocInst, false);
         if (ast.init_val) {
             visit(*static_cast<InitValAST*>(ast.init_val.get()));
-            auto storeInst = new StoreInst(lastVal, allocInst);
-            currentBlock->addInst(storeInst);
+            currentBlock->addInst(new StoreInst(lastVal, allocInst));
         }
     }
+    }
+
     void visit(InitValAST& ast) {
         visit(*static_cast<ExpAST*>(ast.exp.get()));
     }
     void visit(StmtAST& ast) {
         switch(ast.type){
-            case StmtAST::StmtType::Assign:
-            {
-            auto lval= static_cast<LValAST*>(ast.lval.get());
-            Value* address = sym_table.lookupVar(lval->ident);
-            visit(*static_cast<ExpAST*>(ast.exp.get()));
-            Value* value = lastVal;
-            auto storeInst = new StoreInst(value, address);
-            currentBlock->addInst(storeInst);
-                break;
+            case StmtAST::StmtType::Assign: {
+            // 1. 获取左值 (LVal) 和 右值 (Exp) 的 AST 节点
+            auto lval = static_cast<LValAST*>(ast.lval.get());
+            auto exp = static_cast<ExpAST*>(ast.exp.get());
+
+            // 2. 在符号表中查找这个变量的信息
+            const auto& info = sym_table.lookup(lval->ident);
+
+            // --- [语义检查] 防止张冠李戴 ---
+            // 检查 A: 常量不能被赋值 (如: const int a = 1; a = 2; ERROR!)
+            if (info.kind == SymbolInfo::CONST) {
+                std::cerr << "Error: Cannot assign to constant '" << lval->ident << "'." << std::endl;
+                exit(1);
             }
+            // 检查 B: 数组名不能被整体赋值 (如: int arr[3]; arr = 1; ERROR!)
+            if (info.is_array && !lval->index) {
+                std::cerr << "Error: Cannot assign to array name '" << lval->ident << "' directly." << std::endl;
+                exit(1);
+            }
+            // 检查 C: 非数组不能带下标 (如: int a; a[1] = 1; ERROR!)
+            if (!info.is_array && lval->index) {
+                std::cerr << "Error: Scalar '" << lval->ident << "' cannot be indexed." << std::endl;
+                exit(1);
+            }
+            // --- [核心逻辑] 确定存放的目的地 (Target Address) ---
+            // 拿到变量的基地址 (例如 @a 或 @arr)
+            Value* targetAddr = info.var_alloc;
+            // 如果用户带了下标，比如 a[i] = ...
+            if (lval->index) {
+                // A. 计算下标表达式 i 的值。结果存入 lastVal
+                visit(*static_cast<ExpAST*>(lval->index.get()));
+                Value* idxVal = lastVal;
+                // B. 生成 GEP 指令：定位到具体的“抽屉”
+                // IR 示例: %0 = getelemptr @arr, %idxVal
+                auto gep = new GetElemPtrInst(targetAddr, idxVal, newTemp());
+                currentBlock->addInst(gep);
+                // C. [关键] 将目的地更新为这个精准的房间地址
+                targetAddr = gep;
+            }
+            // --- [核心逻辑] 计算并存入数据 ---
+            // 3. 计算等号右边表达式 (Exp) 的值。结果存入 lastVal
+            visit(*exp); 
+            Value* valToStore = lastVal;
+            // 4. 生成 Store 指令：将值搬进目的地
+            // IR 示例: store %valToStore, %targetAddr
+            // 如果是 a = 1, targetAddr 就是 @a
+            // 如果是 a[i] = 1, targetAddr 就是刚才算的 %0
+            currentBlock->addInst(new StoreInst(valToStore, targetAddr));
+            break;
+         }
+
             case StmtAST::StmtType::Exp:
             {
                 if(ast.exp){
@@ -668,34 +794,72 @@ void visit(FuncDefAST& ast) {
             }
         }
     }
+
     void visit(PrimaryExpAST& ast) {
-        if(ast.number){
-            auto num= static_cast<NumberAST*>(ast.number.get());
-            visit(*num);
+    // --- 1. (Number) ---
+    // 例如: return 5;
+    if (ast.number) {
+        auto num = static_cast<NumberAST*>(ast.number.get());
+        visit(*num); // 这会把 lastVal 设为 new Integer(val)
+        return;
+    }
+    // --- 2. 处理嵌套表达式 ( Exp ) ---
+    // 例如: return (a + 1);
+    else if (ast.exp) {
+        auto exp = static_cast<ExpAST*>(ast.exp.get());
+        visit(*exp); // 递归处理括号内部，结果会更新在 lastVal
+        return;
+    }
+    // --- 3. 处理左值访问 (LVal) ---
+    // 这是最复杂的部分，涉及标量、数组、常量和变量的区分
+    else if (ast.lval) {
+        auto lval = static_cast<LValAST*>(ast.lval.get());
+        const auto& info = sym_table.lookup(lval->ident);
+        // --- 语义检查 (Semantic Check) ---
+        // 检查 A: 数组名不能直接参与运算 (如: int b = arr + 1;)
+        if (info.is_array && !lval->index) {
+            std::cerr << "Error: Array '" << lval->ident << "' must be indexed." << std::endl;
+            exit(1);
         }
-        else if (ast.exp) {
-            auto exp = static_cast<ExpAST*>(ast.exp.get());
-            visit(*exp);
+        // 检查 B: 标量不能带下标 (如: int a; int b = a;)
+        if (!info.is_array && lval->index) {
+            std::cerr << "Error: Scalar '" << lval->ident << "' cannot be indexed." << std::endl;
+            exit(1);
         }
-        else if (ast.lval){
-            auto lval = static_cast<LValAST*>(ast.lval.get());
-            const auto& info = sym_table.lookup(lval->ident);
-            if(info.kind==SymbolInfo::CONST){
-                int const_value = info.const_value; 
-                auto num = new Integer(const_value);
-                currentBlock->addValue(num);
-                lastVal = num;
-                return;
-            }
-            else if(info.kind==SymbolInfo::VAR){
-                //load 指令生成
-                auto loadInst = new LoadInst(info.var_alloc, newTemp());
-                currentBlock->addInst(loadInst);
-                lastVal = loadInst;
-                return;
-            }
+        // --- 分支 A: 标量常量 (Constant Substitution) ---
+        // 如果是 const int x = 5; 且不是数组
+        // 我们直接“变魔术”，把变量名换成具体的数字，不产生 IR 指令
+        if (info.kind == SymbolInfo::CONST && !info.is_array) {
+            lastVal = new Integer(info.const_value);
+            return;
         }
-        
+        // --- 分支 B: 变量 或 常量数组 (Memory Access) ---
+        // 无论是 int a 还是 const int arr，只要是数组或者普通变量，
+        // 都需要去内存里“取货”，所以流程是一样的。
+        // 1. 获取基地址 (由之前的 alloc 生成的地址，例如 @a 或 @arr)
+        Value* addr = info.var_alloc;
+
+        // 2. [关键] 数组寻址 (GetElementPtr)
+        // 如果用户写了下标，比如 arr[i]
+        if (lval->index) {
+            // A. 计算下标表达式的值。结果存入 lastVal (可能是常数 2，也可能是变量 %5)
+            visit(*static_cast<ExpAST*>(lval->index.get()));
+            Value* idxVal = lastVal;
+            // B. 生成 GEP 指令：算出精准的房间门牌号
+            // IR 示例: %0 = getelemptr @arr, %idxVal
+            auto gep = new GetElemPtrInst(addr, idxVal, newTemp());
+            currentBlock->addInst(gep);
+            // C. 更新目标地址：现在我们要去刚才算出的“房间”取货，而不是在“大门口”
+            addr = gep;
+        }
+        // 3. 生成 Load 指令：从地址 addr 中读取数值
+        // IR 示例: %1 = load %0 (或者是 load @a)
+        auto loadInst = new LoadInst(addr, newTemp());
+        currentBlock->addInst(loadInst);
+        // 4. 将 Load 后的结果（临时变量 %1）交给 lastVal
+        // 这样后续的加减乘除就能直接用这个 %1 了
+        lastVal = loadInst;
+    }
     }
     void visit(NumberAST& ast) {
         auto num = new Integer(ast.value);

@@ -39,3 +39,11 @@ EqExp         ::= RelExp | EqExp ("==" | "!=") RelExp;
 LAndExp       ::= EqExp | LAndExp "&&" EqExp;
 LOrExp        ::= LAndExp | LOrExp "||" LAndExp;
 ConstExp      ::= Exp;
+
+ConstDef      ::= IDENT ["[" ConstExp "]"] "=" ConstInitVal;
+ConstInitVal  ::= ConstExp | "{" [ConstExp {"," ConstExp}] "}";
+VarDef        ::= IDENT ["[" ConstExp "]"]
+                | IDENT ["[" ConstExp "]"] "=" InitVal;
+InitVal       ::= Exp | "{" [Exp {"," Exp}] "}";
+
+LVal          ::= IDENT ["[" Exp "]"];

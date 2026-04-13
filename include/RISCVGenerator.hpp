@@ -41,10 +41,23 @@ StackLayout computeLayout(const Function& func,std::map<std::string, int>& stack
     }
     for(const auto& block : func.blocks) {
         for (const auto& inst : block->insts) {
-            if (inst->op == OpType::Alloc||inst->type == Type::Int32) {
-                stackMap[inst->name]=offset;
-                offset+=4; 
+            if (inst->op == OpType::Alloc) {
+                auto alloc = static_cast<AllocInst*>(inst.get());
+                stackMap[inst->name] = offset;
+                offset += alloc->arraySize * 4; // 数组占 size * 4
+            } 
+            else {
+            switch (inst->type) {
+                case Type::Int32:
+                case Type::Pointer:
+                    stackMap[inst->name] = offset;
+                    offset += 4;
+                    break;
+                case Type::Void:
+                case Type::Label:
+                    break;
             }
+        }
         }
     }
     S=offset-A;
@@ -75,7 +88,6 @@ public:
     std::string generate(const Program& prog) {
     ss.str(""); 
     ss.clear();
-    
     // --- 第一步：处理全局变量（数据段） ---
     if (!prog.globalValues.empty()) {
         ss << "  .data\n"; // 告诉汇编器，接下来的东西放数据段
@@ -88,12 +100,13 @@ public:
             
             ss << "  .globl " << label << "\n"; // 声明全局符号
             ss << label << ":\n";               // 变量标签
-            
-            // 根据初始值决定是用 .word 还是 .zero
-            if (global->value == 0) {
-                ss << "  .zero 4\n";            // 初始化为 0，占 4 字节
+            if (global->values.empty()) {
+            // 如果是 zeroinit，根据 size * 4 填充 0
+            ss << "  .zero " << global->size * 4 << "\n";
             } else {
-                ss << "  .word " << global->value << "\n"; // 存入具体的整数值
+                for (int v : global->values) {
+                    ss << "  .word " << v << "\n";
+                }
             }
             ss << "\n";
         }
@@ -220,6 +233,10 @@ public:
         else if(inst.op==OpType::Call){
             visitCall(static_cast<const CallInst&>(inst));
         }
+        else if(inst.op==OpType::GetElemPtr){
+            visitGetElemPtr(static_cast<const GetElemPtrInst&>(inst));
+        }
+
          else {
             visitBinary(static_cast<const Binary&>(inst));
         }
@@ -236,29 +253,51 @@ public:
         // 存入全局变量：la -> sw
         ss << "  la t1, " << inst.address->name.substr(1) << "\n";
         ss << "  sw " << valReg << ", 0(t1)\n";
-    } else {
-        // 存入局部变量：sw offset(sp)
-        int offset = getStackOffset(inst.address->name);
-        ss << "  sw " << valReg << ", " << offset << "(sp)\n";
+    } 
+    else {
+        const Instruction* addrInst = dynamic_cast<const Instruction*>(inst.address);
+        // 情况 A：直接存入局部标量或数组 (AllocInst)
+        // 这里的地址就是 sp + offset
+        if (addrInst && addrInst->op == OpType::Alloc) {
+            int offset = getStackOffset(inst.address->name);
+            ss << "  sw " << valReg << ", " << offset << "(sp)\n";
+        } 
+        // 情况 B：存入计算出来的地址 (GetElemPtrInst 的结果)
+        // 这里的地址值已经存在栈上了，需要先 lw 出来
+        else {
+            int addrOffset = getStackOffset(inst.address->name);
+            ss << "  lw t1, " << addrOffset << "(sp)\n"; // 拿到算好的地址
+            ss << "  sw " << valReg << ", 0(t1)\n";      // 往那个地址存货
+        }
     }
     }
     
-    void visitLoad(const LoadInst& inst) {
-        //%0=load @x. 
-    // 目标寄存器 (如 %0) 肯定在栈上
+ void visitLoad(const LoadInst& inst) {
     int offsetDest = getStackOffset(inst.name);
-
+    // 1. 处理全局变量 (@x)
     if (inst.address->isGlobal()) {
-        // 全局变量：la -> lw
-        ss << "  la t0, " << inst.address->name.substr(1) << "\n";
-        ss << "  lw t0, 0(t0)\n";
-    } else {
-        // 局部变量：从栈上 lw
-        int offsetSrc = getStackOffset(inst.address->name);
-        ss << "  lw t0, " << offsetSrc << "(sp)\n";
+        ss << "  la t0, " << inst.address->name.substr(1) << "\n"; // 拿物理地址
+        ss << "  lw t0, 0(t0)\n";                                 // 从该地址取货
+    } 
+    else {
+        const Instruction* addrInst = dynamic_cast<const Instruction*>(inst.address);
+        // 情况 A：直接加载局部变量 (AllocInst)
+        // 地址就是固定的 sp + offset
+        if (addrInst && addrInst->op == OpType::Alloc) {
+            int offsetSrc = getStackOffset(inst.address->name);
+            ss << "  lw t0, " << offsetSrc << "(sp)\n";           // 一步到位取货
+        } 
+        // 情况 B：从指针/GEP 结果加载 (GetElemPtrInst)
+        // 栈里存的是地址，需要两次lw
+        else {
+            int addrOffset = getStackOffset(inst.address->name);
+            ss << "  lw t1, " << addrOffset << "(sp)\n";         
+            ss << "  lw t0, 0(t1)\n";                             
+        }
     }
-    ss << "  sw t0, " << offsetDest << "(sp)\n"; 
-    }
+    // 最后把取到的货 (t0) 存到目标变量在栈上的坑里
+    ss << "  sw t0, " << offsetDest << "(sp)\n";
+}
     void visitBranch(const BranchInst& inst) {
         //br %cond, %then, %else
         //bnez %cond, then
@@ -372,4 +411,30 @@ public:
             ss << "  sw a0, " << offset << "(sp)\n";
         }
     }
+
+    void visitGetElemPtr(const GetElemPtrInst& inst) {
+    // 1. 获取基地址（放到 t0）
+    if (inst.ptr->isGlobal()) {
+        ss << "  la t0, " << inst.ptr->name.substr(1) << "\n";
+    } else {
+        const Instruction* ptrInst = dynamic_cast<const Instruction*>(inst.ptr);
+
+        if (ptrInst && ptrInst->op == OpType::Alloc) {
+            int offset = getStackOffset(inst.ptr->name);
+            ss << "  addi t0, sp, " << offset << "\n";
+        } else {
+            // 如果不是 alloc（比如是上一个 GEP 算出的地址），
+            // 那么这个“值”本身就存在栈上，我们需要用 lw 把它读出来
+            int offset = getStackOffset(inst.ptr->name);
+            ss << "  lw t0, " << offset << "(sp)\n";
+        }
+    }
+    // 2. 获取下标并计算偏移（逻辑保持不变）
+    std::string idxReg = getValRegFromStack(inst.index, "t1");
+    ss << "  slli t1, " << idxReg << ", 2\n"; // t1 = idx * 4
+    ss << "  add t0, t0, t1\n";              // t0 = 基址 + 偏移
+    // 3. 将算出的地址存回栈
+    int destOffset = getStackOffset(inst.name);
+    ss << "  sw t0, " << destOffset << "(sp)\n";
+}
 };

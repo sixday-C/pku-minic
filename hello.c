@@ -1,5 +1,4 @@
 int main() {
-  int i = 0;
-  while (i < 10) i = i + 1;
-  return i;
+  int arr[2][3] = {1, 2};
+  return arr[0][2];
 }

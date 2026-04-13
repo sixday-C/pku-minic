@@ -52,7 +52,8 @@ enum class OpType{
     Load,
     Br,
     Jump,
-    Call//函数调用
+    Call,
+    GetElemPtr
 };
 
 inline std::string opName(OpType op) {
@@ -77,6 +78,7 @@ inline std::string opName(OpType op) {
         case OpType::Br: return "br";
         case OpType::Jump: return "jump";
         case OpType::Call: return "call";
+        case OpType::GetElemPtr: return "getelemptr";
         default: return "unknown";
     }
 }
@@ -92,19 +94,44 @@ public:
 //全局变量
 class GlobalAlloc : public Value {
 public:
-    int value; // 仅支持整数常量
-    GlobalAlloc(const std::string& n, int v) : value(v) {
+    int size;               // 数组长度，1 表示标量
+    std::vector<int> values; // 存储初始值列表
+    bool isArray;
+
+    bool isGlobal() const override { return true; }
+    GlobalAlloc(const std::string& n, int v) : size(1), isArray(false) {
+        name = n;
+        values.push_back(v);
+        type = Type::Int32;
+    }
+    GlobalAlloc(const std::string& n, const std::vector<int>& v, int s) 
+        : size(s), values(v), isArray(true) {
         name = n;
         type = Type::Int32;
     }
+
     std::string toString() const override {
-        if (value == 0) {
-            return "global " + name + " = alloc i32, zeroinit\n";
+        std::string typeStr = isArray ? "[i32, " + std::to_string(size) + "]" : "i32";
+        std::string res = "global " + name + " = alloc " + typeStr + ", ";
+        bool allZero = true;
+        for(int v : values) if(v != 0) { allZero = false; break; }
+
+        if (allZero) {
+            res += "zeroinit";
+        } 
+        else if (!isArray) {
+            res += std::to_string(values[0]);
+        } 
+        else {
+            res += "{";
+            for (size_t i = 0; i < values.size(); ++i) {
+                res += std::to_string(values[i]) + (i == values.size() - 1 ? "" : ", ");
+            }
+            res += "}";
         }
-        return "global " + name + " = alloc i32, " + std::to_string(value) + "\n";
-    }
-    bool isGlobal() const override { return true; }
-};
+        
+        return res + "\n";
+    }};
 
 
 class Integer: public Value {
@@ -183,13 +210,37 @@ public:
 
 class AllocInst : public Instruction {
 public:
+    int arraySize; 
+    bool isArray;
+
     AllocInst(const std::string& n)
-        : Instruction(OpType::Alloc, Type::Int32, n) {        
-        } 
+        : Instruction(OpType::Alloc, Type::Int32, n), arraySize(1), isArray(false) {} 
+
+    AllocInst(const std::string& n, int size)
+        : Instruction(OpType::Alloc, Type::Int32, n), arraySize(size), isArray(true) {}
+
     std::string toString() const override {
+        if (isArray) {
+            return name + " = alloc [i32, " + std::to_string(arraySize) + "]";
+        }
         return name + " = alloc i32";
     }
-}; 
+};
+
+class GetElemPtrInst : public Instruction {
+public:
+    Value* ptr;   
+    Value* index; 
+    GetElemPtrInst(Value* p, Value* idx, const std::string& n)
+        : Instruction(OpType::GetElemPtr, Type::Pointer, n), ptr(p), index(idx) {
+    }
+
+    std::string toString() const override {
+        //%1 = getelemptr @arr, %idx
+        return name + " = getelemptr " + ptr->name + ", " + index->toString();
+    }
+};
+
 class StoreInst : public Instruction {
 public:
     Value* value;

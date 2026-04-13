@@ -68,12 +68,33 @@ class VarDefAST: public BaseAST{
     public:
     std::string ident;
     std::unique_ptr<BaseAST> init_val;
+    std::unique_ptr<BaseAST> array_size; 
+};
+class InitValAST : public BaseAST {
+public:
+    bool is_list = false; 
+    std::unique_ptr<BaseAST> exp; 
+    std::vector<std::unique_ptr<BaseAST>> init_list; 
+    int evalConst(SymbolTable& sym_table) const override {
+        if (!is_list && exp) {
+            return exp->evalConst(sym_table);
+        }
+        return 0; 
+    }
 };
 
-class InitValAST: public BaseAST{
-    public:
-    std::unique_ptr<BaseAST> exp;
+class ConstInitValAST : public BaseAST {
+public:
+    bool is_list = false;
+    std::unique_ptr<BaseAST> const_exp;
+    std::vector<std::unique_ptr<BaseAST>> init_list;
 
+    int evalConst(SymbolTable& sym_table) const override {
+        if (!is_list && const_exp) {
+            return const_exp->evalConst(sym_table);
+        }
+        return 0; 
+    }
 };
 
 
@@ -91,19 +112,11 @@ class BTypeAST: public BaseAST{
 class ConstDefAST: public BaseAST{
     public:
     std::string ident;
+    std::unique_ptr<BaseAST> array_size;
     std::unique_ptr<BaseAST> const_init_val;
     
 };
-class ConstInitValAST: public BaseAST{
-    public:
-    std::unique_ptr<BaseAST> const_exp;
-    int evalConst(SymbolTable& sym_table) const override {
-        if (const_exp) {
-            return const_exp->evalConst(sym_table);
-        }
-        return 0; // or some default value
-    }
-};
+
 
 class ConstExpAST: public BaseAST{
     public:
@@ -346,8 +359,14 @@ class PrimaryExpAST: public BaseAST{
 class LValAST: public BaseAST{
     public:
     std::string ident;
+    std::unique_ptr<BaseAST> index;
     int evalConst(SymbolTable& sym_table) const override {
-        return sym_table.lookupConst(ident);
+        if (index ||sym_table.lookup(ident).is_array) {
+        //常量表达式里不能有数组解引用
+        throw std::runtime_error("Dereferencing constant array is not allowed in constant expressions.");
+    }
+    // 只有普通的 const int a = 10; 这种标量常量才允许求值
+    return sym_table.lookupConst(ident);
     }
 };
 
