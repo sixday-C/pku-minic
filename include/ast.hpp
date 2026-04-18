@@ -34,9 +34,11 @@ class FuncFParamAST: public BaseAST {
 public:
     std::unique_ptr<BaseAST> b_type;
     std::string ident;
+    bool is_array_param = false;
+    std::vector<std::unique_ptr<BaseAST>> array_dims;
 
-    FuncFParamAST(std::unique_ptr<BaseAST> b, std::string id)
-        : b_type(std::move(b)), ident(std::move(id)) {}
+    FuncFParamAST(std::unique_ptr<BaseAST> b, std::string id, bool is_array = false, std::vector<std::unique_ptr<BaseAST>> dims = {})
+        : b_type(std::move(b)), ident(std::move(id)), is_array_param(is_array), array_dims(std::move(dims)) {}
 };
 
 class BlockAST: public BaseAST{
@@ -68,7 +70,7 @@ class VarDefAST: public BaseAST{
     public:
     std::string ident;
     std::unique_ptr<BaseAST> init_val;
-    std::unique_ptr<BaseAST> array_size; 
+    std::vector<std::unique_ptr<BaseAST>> array_sizes;
 };
 class InitValAST : public BaseAST {
 public:
@@ -112,7 +114,7 @@ class BTypeAST: public BaseAST{
 class ConstDefAST: public BaseAST{
     public:
     std::string ident;
-    std::unique_ptr<BaseAST> array_size;
+    std::vector<std::unique_ptr<BaseAST>> array_sizes;
     std::unique_ptr<BaseAST> const_init_val;
     
 };
@@ -359,9 +361,9 @@ class PrimaryExpAST: public BaseAST{
 class LValAST: public BaseAST{
     public:
     std::string ident;
-    std::unique_ptr<BaseAST> index;
+    std::vector<std::unique_ptr<BaseAST>> indices; // 多维数组访问下标
     int evalConst(SymbolTable& sym_table) const override {
-        if (index ||sym_table.lookup(ident).is_array) {
+        if (!indices.empty() || sym_table.lookup(ident).is_array) {
         //常量表达式里不能有数组解引用
         throw std::runtime_error("Dereferencing constant array is not allowed in constant expressions.");
     }

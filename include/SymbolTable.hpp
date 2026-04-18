@@ -2,6 +2,8 @@
 #include <unordered_map>
 #include <string>
 #include <stdexcept>
+#include <vector>
+#include <list>
 #include "ir.hpp"
 struct SymbolInfo {
     enum Kind { CONST, VAR, FUNC } kind;
@@ -13,8 +15,10 @@ struct SymbolInfo {
     std::vector<::Type> param_types;   
     
     bool is_array = false;           
+    bool is_param_array = false;     // 标记是否为数组参数
     int array_size = 0;              
-    int const_value = 0;             
+    int const_value = 0; 
+    std::vector<int> array_dims;   // 新增：记录每一维长度  
 
 
     static SymbolInfo makeConst(int value) {
@@ -24,21 +28,25 @@ struct SymbolInfo {
         return info;
     }
 
-    static SymbolInfo makeConstArray(Value* alloc, int size) {
+    static SymbolInfo makeConstArray(Value* alloc, int size, const std::vector<int>& dims) {
         SymbolInfo info;
         info.kind = CONST;
         info.is_array = true;
         info.array_size = size;
+        info.array_dims = dims;
         info.var_alloc = alloc;
         return info;
     }
 
-    static SymbolInfo makeVar(Value* alloc, bool is_arr = false, int size = 0) {
+    static SymbolInfo makeVar(Value* alloc, bool is_arr = false, int size = 0,
+                          const std::vector<int>& dims = {}, bool is_param = false) {
     SymbolInfo info;
     info.kind = VAR;
-    info.var_alloc = alloc;// 变量的起始位置   
-    info.is_array = is_arr;    
-    info.array_size = size;    
+    info.var_alloc = alloc;
+    info.is_array = is_arr;
+    info.is_param_array = is_param;
+    info.array_size = size;
+    info.array_dims = dims;
     return info;
 }
     static SymbolInfo makeFunc(::Type ret_type, std::vector<::Type> params = {}) {
@@ -82,21 +90,23 @@ class SymbolTable{
     }
 
     //【数组】变量
-    void insertVar(const std::string& name, Value* alloc, bool is_arr = false, int size = 0) {
+    void insertVar(const std::string& name, Value* alloc, bool is_arr = false,
+               int size = 0, const std::vector<int>& dims = {}, bool is_param = false) {
     auto &current = scopes.back();
     if(current.find(name) != current.end()) {
         throw std::runtime_error("Variable " + name + " already defined.");
     }
-    current[name] = SymbolInfo::makeVar(alloc, is_arr, size);
+    current[name] = SymbolInfo::makeVar(alloc, is_arr, size, dims, is_param);
 }
 
     //数组常量
-    void insertConstArray(const std::string& name, Value* alloc, int size) {
+    void insertConstArray(const std::string& name, Value* alloc, int size,
+                      const std::vector<int>& dims) {
     auto &current = scopes.back();
     if(current.find(name) != current.end()) {
         throw std::runtime_error("Constant array " + name + " already defined.");
     }
-    current[name] = SymbolInfo::makeConstArray(alloc, size);
+    current[name] = SymbolInfo::makeConstArray(alloc, size, dims);
 }
 
     const SymbolInfo& lookup(const std::string& name) const {

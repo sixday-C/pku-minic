@@ -48,12 +48,16 @@ LDFLAGS += -L$(LIB_DIR) -lkoopa
 FB_SRCS := $(patsubst $(SRC_DIR)/%.l, $(BUILD_DIR)/%.lex$(FB_EXT), $(shell find $(SRC_DIR) -name "*.l"))
 FB_SRCS += $(patsubst $(SRC_DIR)/%.y, $(BUILD_DIR)/%.tab$(FB_EXT), $(shell find $(SRC_DIR) -name "*.y"))
 SRCS := $(FB_SRCS) $(shell find $(SRC_DIR) -name "*.c" -or -name "*.cpp" -or -name "*.cc")
+EXTRA_SRCS := $(shell find $(TOP_DIR)/include -name "*.c" -or -name "*.cpp" -or -name "*.cc")
 OBJS := $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.c.o, $(SRCS))
 OBJS := $(patsubst $(SRC_DIR)/%.cpp, $(BUILD_DIR)/%.cpp.o, $(OBJS))
 OBJS := $(patsubst $(SRC_DIR)/%.cc, $(BUILD_DIR)/%.cc.o, $(OBJS))
 OBJS := $(patsubst $(BUILD_DIR)/%.c, $(BUILD_DIR)/%.c.o, $(OBJS))
 OBJS := $(patsubst $(BUILD_DIR)/%.cpp, $(BUILD_DIR)/%.cpp.o, $(OBJS))
 OBJS := $(patsubst $(BUILD_DIR)/%.cc, $(BUILD_DIR)/%.cc.o, $(OBJS))
+OBJS += $(patsubst $(TOP_DIR)/%.c, $(BUILD_DIR)/%.c.o, $(filter %.c,$(EXTRA_SRCS)))
+OBJS += $(patsubst $(TOP_DIR)/%.cpp, $(BUILD_DIR)/%.cpp.o, $(filter %.cpp,$(EXTRA_SRCS)))
+OBJS += $(patsubst $(TOP_DIR)/%.cc, $(BUILD_DIR)/%.cc.o, $(filter %.cc,$(EXTRA_SRCS)))
 
 # Header directories & dependencies
 INC_DIRS := $(shell find $(SRC_DIR) -type d)
@@ -74,6 +78,7 @@ define c_recipe
 endef
 $(BUILD_DIR)/%.c.o: $(SRC_DIR)/%.c; $(c_recipe)
 $(BUILD_DIR)/%.c.o: $(BUILD_DIR)/%.c; $(c_recipe)
+$(BUILD_DIR)/include/%.c.o: $(TOP_DIR)/include/%.c; $(c_recipe)
 
 # C++ source
 define cxx_recipe
@@ -83,6 +88,8 @@ endef
 $(BUILD_DIR)/%.cpp.o: $(SRC_DIR)/%.cpp; $(cxx_recipe)
 $(BUILD_DIR)/%.cpp.o: $(BUILD_DIR)/%.cpp; $(cxx_recipe)
 $(BUILD_DIR)/%.cc.o: $(SRC_DIR)/%.cc; $(cxx_recipe)
+$(BUILD_DIR)/include/%.cpp.o: $(TOP_DIR)/include/%.cpp; $(cxx_recipe)
+$(BUILD_DIR)/include/%.cc.o: $(TOP_DIR)/include/%.cc; $(cxx_recipe)
 
 # Flex
 $(BUILD_DIR)/%.lex$(FB_EXT): $(SRC_DIR)/%.l

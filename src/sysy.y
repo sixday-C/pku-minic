@@ -51,9 +51,9 @@ using namespace std;
 %type <ast_val> LVal
 %type <ast_val> BlockItem Decl ConstDecl BType ConstDef ConstInitVal ConstExp 
 %type <ast_val> VarDecl VarDef InitVal 
-%type <ast_val> OpenStmt ClosedStmt SimpleStmt
-%type <vec_val> BlockItemList ConstDefList VarDefList FuncFParams FuncRParams
-%type <vec_val> ConstInitValList InitValList
+%type <ast_val> OpenStmt ClosedStmt SimpleStmt 
+%type <vec_val> BlockItemList ConstDefList VarDefList FuncFParams FuncRParams 
+%type <vec_val> ConstInitValList InitValList ConstDims VarDims LValDims FuncFParamTailDims
 
 %%
 //CompUnit 的递归定义
@@ -118,7 +118,26 @@ FuncFParam
     $$ = new FuncFParamAST(std::unique_ptr<BaseAST>($1), 
                            *std::unique_ptr<std::string>($2));
   }
+  | BType IDENT '[' ']' FuncFParamTailDims {
+    auto param = new FuncFParamAST(std::unique_ptr<BaseAST>($1), 
+                                  *std::unique_ptr<std::string>($2), 
+                                  true, std::move(*$5));
+    delete $5; 
+    $$ = param;
+  }
   ;
+
+  FuncFParamTailDims
+  : {
+      $$ = new std::vector<std::unique_ptr<BaseAST>>();
+    }
+  | FuncFParamTailDims '[' ConstExp ']' {
+      auto vec = $1;
+      vec->push_back(std::unique_ptr<BaseAST>($3));
+      $$ = vec;
+    }
+  ;
+
   FuncRParams
   : Exp {
     auto vec = new std::vector<std::unique_ptr<BaseAST>>();
@@ -211,31 +230,42 @@ VarDef
   : IDENT {
       auto v = new VarDefAST();
       v->ident = *unique_ptr<string>($1);
-      v->array_size = nullptr; // 普通变量
       v->init_val = nullptr;
       $$ = v;
     }
-  | IDENT '[' ConstExp ']' {
+  | IDENT VarDims {
       auto v = new VarDefAST();
       v->ident = *unique_ptr<string>($1);
-      v->array_size = unique_ptr<BaseAST>($3); // 数组变量
+      v->array_sizes = std::move(*$2);
+      delete $2;
       v->init_val = nullptr;
       $$ = v;
     }
   | IDENT '=' InitVal {
       auto v = new VarDefAST();
       v->ident = *unique_ptr<string>($1);
-      v->array_size = nullptr;
       v->init_val = unique_ptr<BaseAST>($3);
       $$ = v;
     }
-  | IDENT '[' ConstExp ']' '=' InitVal {
+  | IDENT VarDims '=' InitVal {
       auto v = new VarDefAST();
       v->ident = *unique_ptr<string>($1);
-      v->array_size = unique_ptr<BaseAST>($3);
-      v->init_val = unique_ptr<BaseAST>($6);
+      v->array_sizes = std::move(*$2);
+      delete $2;
+      v->init_val = unique_ptr<BaseAST>($4);
       $$ = v;
     }
+  ;
+
+VarDims
+  : {
+    $$=new std::vector<std::unique_ptr<BaseAST>>();
+  }
+  | VarDims '[' ConstExp ']' {
+    auto vec=$1;
+    vec->push_back(std::unique_ptr<BaseAST>($3));
+    $$=vec;
+  }
   ;
 
 InitVal
@@ -300,12 +330,24 @@ ConstDef
     c->const_init_val=std::unique_ptr<BaseAST>($3);
     $$=c;
   }
-  | IDENT '[' ConstExp ']' '=' ConstInitVal {
+  | IDENT ConstDims '=' ConstInitVal {
     auto c=new ConstDefAST();
     c->ident=*unique_ptr<string>($1);
-    c->array_size=std::unique_ptr<BaseAST>($3);
-    c->const_init_val=std::unique_ptr<BaseAST>($6);
+    c->array_sizes=std::move(*$2);
+    delete $2;
+    c->const_init_val=std::unique_ptr<BaseAST>($4);
     $$=c;
+  }
+  ;
+
+ConstDims
+  : {
+    $$=new std::vector<std::unique_ptr<BaseAST>>();
+  }
+  | ConstDims '[' ConstExp ']' {
+    auto vec=$1;
+    vec->push_back(std::unique_ptr<BaseAST>($3));
+    $$=vec;
   }
   ;
 
@@ -436,6 +478,12 @@ SimpleStmt
     s->exp=std::unique_ptr<BaseAST>($2);
     $$=s;
     }
+  | RETURN ';' {
+    auto s=new StmtAST();
+    s->type=StmtAST::StmtType::Return;
+    s->exp=nullptr;
+    $$=s;
+    }
 ;
 
 Exp
@@ -529,7 +577,7 @@ EqExp
     r->add_exp=std::unique_ptr<BaseAST>($3);  
     r->rel_op=">=";
     $$=r;
-  }
+  };
 
 AddExp
   : MulExp {
@@ -551,7 +599,7 @@ AddExp
     a->add_op='-';
     $$=a;
   }
-
+;
 MulExp
   : UnaryExp {
     auto m=new MulExpAST();
@@ -579,7 +627,7 @@ MulExp
     m->mul_op='%';
     $$=m;
   }
-  
+ ; 
 PrimaryExp
   : '(' Exp ')' {
     auto p=new PrimaryExpAST();
@@ -596,6 +644,7 @@ PrimaryExp
     p->number=std::unique_ptr<BaseAST>($1);
     $$ = p;
   }
+  ;
 UnaryExp
   : PrimaryExp {
     auto u=new UnaryExpAST();
@@ -651,16 +700,26 @@ LVal
   : IDENT {
     auto l = new LValAST();
     l->ident = *unique_ptr<string>($1);
-    l->index = nullptr; 
     $$ = l;
   }
-  | IDENT '[' Exp ']' {
+  | IDENT LValDims {
     auto l = new LValAST();
     l->ident = *unique_ptr<string>($1);
-    l->index = unique_ptr<BaseAST>($3); 
+    l->indices =std::move(*$2);
+    delete $2;
     $$ = l;
   }
   ;
+
+LValDims
+  : { 
+    $$ = new std::vector<std::unique_ptr<BaseAST>>();
+  }
+  | LValDims '[' Exp ']' {
+    auto vec = $1;
+    vec->push_back(std::unique_ptr<BaseAST>($3));
+    $$ = vec;
+  }
 
 %%
 

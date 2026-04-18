@@ -53,7 +53,8 @@ enum class OpType{
     Br,
     Jump,
     Call,
-    GetElemPtr
+    GetElemPtr,
+    GetPtr
 };
 
 inline std::string opName(OpType op) {
@@ -79,6 +80,7 @@ inline std::string opName(OpType op) {
         case OpType::Jump: return "jump";
         case OpType::Call: return "call";
         case OpType::GetElemPtr: return "getelemptr";
+        case OpType::GetPtr: return "getptr";
         default: return "unknown";
     }
 }
@@ -150,8 +152,14 @@ public:
 
 class Parameter : public Value {
 public:
-    Parameter(const std::string& n) { name = n; type = Type::Int32; }
-    std::string toString() const override { return name; }
+    Parameter(const std::string& n, Type t) {
+        name = n;
+        type = t;
+    }
+
+    std::string toString() const override {
+        return name;
+    }
 };
 
 class Instruction: public Value {
@@ -236,8 +244,8 @@ public:
     }
 
     std::string toString() const override {
-        //%1 = getelemptr @arr, %idx
-        return name + " = getelemptr " + ptr->name + ", " + index->toString();
+        //%1 = getelemptr @arr, %idxm
+        return name + " = getelemptr " + ptr->name + ", " + index->name;
     }
 };
 
@@ -278,6 +286,19 @@ public:
     }
 };
 
+class GetPtrInst : public Instruction {
+public:
+    Value* ptr;
+    Value* index;
+
+    GetPtrInst(Value* p, Value* idx, const std::string& n)
+        : Instruction(OpType::GetPtr, Type::Pointer, n), ptr(p), index(idx) {}
+
+    std::string toString() const override {
+        return name + " = getptr " + ptr->name + ", " + index->name;
+    }
+};
+
 class BasicBlock : public Value {
 public:
     std::list<std::unique_ptr<Instruction>> insts;
@@ -313,22 +334,27 @@ public:
     }
 
     std::string toString() const override {
-        // 生成形如: fun @foo(%a: i32, %b: i32): i32 {
-        std::string result = "fun " + name + "(";
-        for (size_t i = 0; i < params.size(); ++i) {
-            result += params[i].first + ": i32" + (i == params.size() - 1 ? "" : ", ");
+    std::string result = "fun " + name + "(";
+    for (size_t i = 0; i < params.size(); ++i) {
+        std::string ty;
+        switch (params[i].second) {
+            case Type::Int32: ty = "i32"; break;
+            case Type::Pointer: ty = "*i32"; break;
+            default: ty = "unknown"; break;
         }
-        result += ")";  
-        if(retType != Type::Void){
-            result += ": i32";
-        }
-        result += " {\n";
-        for (const auto& block : blocks) {
-            result += block->toString();
-        }
-        result += "}\n";
-        return result;
+        result += params[i].first + ": " + ty + (i == params.size() - 1 ? "" : ", ");
     }
+    result += ")";
+    if (retType != Type::Void) {
+        result += ": i32";
+    }
+    result += " {\n";
+    for (const auto& block : blocks) {
+        result += block->toString();
+    }
+    result += "}\n";
+    return result;
+}
 };
 
 class Program {
