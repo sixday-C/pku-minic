@@ -74,6 +74,37 @@ private:
     std::string currentFuncLabel;
     bool isFirstBlockInCurrentFunc = false;
 
+    bool fitsImm12(int x) const {
+        return x >= -2048 && x <= 2047;
+    }
+
+    void emitSpAddr(const std::string& dst, int offset, const std::string& scratch = "t3") {
+        if (fitsImm12(offset)) {
+            ss << "  addi " << dst << ", sp, " << offset << "\n";
+        } else {
+            ss << "  li " << scratch << ", " << offset << "\n";
+            ss << "  add " << dst << ", sp, " << scratch << "\n";
+        }
+    }
+
+    void emitLoadFromSp(const std::string& dst, int offset, const std::string& scratch = "t3") {
+        if (fitsImm12(offset)) {
+            ss << "  lw " << dst << ", " << offset << "(sp)\n";
+        } else {
+            emitSpAddr(scratch, offset, "t4");
+            ss << "  lw " << dst << ", 0(" << scratch << ")\n";
+        }
+    }
+
+    void emitStoreToSp(const std::string& src, int offset, const std::string& scratch = "t3") {
+        if (fitsImm12(offset)) {
+            ss << "  sw " << src << ", " << offset << "(sp)\n";
+        } else {
+            emitSpAddr(scratch, offset, "t4");
+            ss << "  sw " << src << ", 0(" << scratch << ")\n";
+        }
+    }
+
     std::string getAsmBlockLabel(const std::string& irBlockName) const {
         std::string block = irBlockName;
         if (!block.empty() && block[0] == '%') {
@@ -139,7 +170,7 @@ public:
     }
     if(name[0]=='@'||name[0]=='%'){//变量或临时变量
         int offset = getStackOffset(name);
-        ss << "  lw " << tempReg << ", " << offset << "(sp)\n";//从栈上加载到临时寄存器
+        emitLoadFromSp(tempReg, offset);//从栈上加载到临时寄存器
         return tempReg;
     }
     else{
@@ -178,7 +209,7 @@ public:
         }
     }
         if (currentLayout.R > 0) {
-        ss << "  sw ra, " << currentLayout.raOffset << "(sp)\n";
+        emitStoreToSp("ra", currentLayout.raOffset);
     }
         for (size_t i = 0; i < func.params.size(); ++i) {
             std::string paramName = func.params[i].first;
@@ -186,12 +217,12 @@ public:
 
             if (i < 8) {
             std::string reg = "a" + std::to_string(i);
-            ss << "  sw " << reg << ", " << offset << "(sp)\n";
+            emitStoreToSp(reg, offset);
             }
             else {
                 int argOffset = currentLayout.total+(i - 8) * 4;
-                ss << "  lw t0, " << argOffset << "(sp)\n";
-                ss << "  sw t0, " << offset << "(sp)\n";
+                emitLoadFromSp("t0", argOffset);
+                emitStoreToSp("t0", offset);
             }
     }
         for(const auto& block : func.blocks) {
@@ -236,6 +267,9 @@ public:
         else if(inst.op==OpType::GetElemPtr){
             visitGetElemPtr(static_cast<const GetElemPtrInst&>(inst));
         }
+        else if(inst.op==OpType::GetPtr){
+            visitGetPtr(static_cast<const GetPtrInst&>(inst));
+        }
 
          else {
             visitBinary(static_cast<const Binary&>(inst));
@@ -260,13 +294,13 @@ public:
         // 这里的地址就是 sp + offset
         if (addrInst && addrInst->op == OpType::Alloc) {
             int offset = getStackOffset(inst.address->name);
-            ss << "  sw " << valReg << ", " << offset << "(sp)\n";
+            emitStoreToSp(valReg, offset);
         } 
         // 情况 B：存入计算出来的地址 (GetElemPtrInst 的结果)
         // 这里的地址值已经存在栈上了，需要先 lw 出来
         else {
             int addrOffset = getStackOffset(inst.address->name);
-            ss << "  lw t1, " << addrOffset << "(sp)\n"; // 拿到算好的地址
+            emitLoadFromSp("t1", addrOffset); // 拿到算好的地址
             ss << "  sw " << valReg << ", 0(t1)\n";      // 往那个地址存货
         }
     }
@@ -285,18 +319,18 @@ public:
         // 地址就是固定的 sp + offset
         if (addrInst && addrInst->op == OpType::Alloc) {
             int offsetSrc = getStackOffset(inst.address->name);
-            ss << "  lw t0, " << offsetSrc << "(sp)\n";           // 一步到位取货
+            emitLoadFromSp("t0", offsetSrc);           // 一步到位取货
         } 
         // 情况 B：从指针/GEP 结果加载 (GetElemPtrInst)
         // 栈里存的是地址，需要两次lw
         else {
             int addrOffset = getStackOffset(inst.address->name);
-            ss << "  lw t1, " << addrOffset << "(sp)\n";         
+            emitLoadFromSp("t1", addrOffset);         
             ss << "  lw t0, 0(t1)\n";                             
         }
     }
     // 最后把取到的货 (t0) 存到目标变量在栈上的坑里
-    ss << "  sw t0, " << offsetDest << "(sp)\n";
+    emitStoreToSp("t0", offsetDest);
 }
     void visitBranch(const BranchInst& inst) {
         //br %cond, %then, %else
@@ -358,7 +392,7 @@ public:
             ss << "  or t0, " << rs1 << ", " << rs2 << "\n";
         }
         int offset = getStackOffset(inst.name);
-        ss << "  sw t0, " << offset << "(sp)\n";
+        emitStoreToSp("t0", offset);
 
     }
     void visitReturn(const ReturnInst& inst) {
@@ -369,7 +403,7 @@ public:
         }
         }
         if (currentLayout.R > 0) {
-        ss << "  lw ra, " << currentLayout.raOffset << "(sp)\n";
+        emitLoadFromSp("ra", currentLayout.raOffset);
     }
         int total=currentLayout.total;
         if (total > 0) {
@@ -400,7 +434,7 @@ public:
         for (int i = 8; i < argCount; ++i) {
             std::string srcReg = getValRegFromStack(inst.args[i], "t0");
             int offset = (i - 8) * 4; 
-            ss << "  sw " << srcReg << ", " << offset << "(sp)\n";
+            emitStoreToSp(srcReg, offset);
         }
     }
 
@@ -408,7 +442,7 @@ public:
 
         if (inst.type != Type::Void) {
             int offset = getStackOffset(inst.name);
-            ss << "  sw a0, " << offset << "(sp)\n";
+            emitStoreToSp("a0", offset);
         }
     }
 
@@ -421,12 +455,12 @@ public:
 
         if (ptrInst && ptrInst->op == OpType::Alloc) {
             int offset = getStackOffset(inst.ptr->name);
-            ss << "  addi t0, sp, " << offset << "\n";
+            emitSpAddr("t0", offset);
         } else {
             // 如果不是 alloc（比如是上一个 GEP 算出的地址），
             // 那么这个“值”本身就存在栈上，我们需要用 lw 把它读出来
             int offset = getStackOffset(inst.ptr->name);
-            ss << "  lw t0, " << offset << "(sp)\n";
+            emitLoadFromSp("t0", offset);
         }
     }
     // 2. 获取下标并计算偏移（逻辑保持不变）
@@ -435,6 +469,30 @@ public:
     ss << "  add t0, t0, t1\n";              // t0 = 基址 + 偏移
     // 3. 将算出的地址存回栈
     int destOffset = getStackOffset(inst.name);
-    ss << "  sw t0, " << destOffset << "(sp)\n";
+    emitStoreToSp("t0", destOffset);
+}
+
+    void visitGetPtr(const GetPtrInst& inst) {
+    // getptr 与 getelemptr 在当前实现中都是基址 + idx * 4
+    if (inst.ptr->isGlobal()) {
+        ss << "  la t0, " << inst.ptr->name.substr(1) << "\n";
+    } else {
+        const Instruction* ptrInst = dynamic_cast<const Instruction*>(inst.ptr);
+
+        if (ptrInst && ptrInst->op == OpType::Alloc) {
+            int offset = getStackOffset(inst.ptr->name);
+            emitSpAddr("t0", offset);
+        } else {
+            int offset = getStackOffset(inst.ptr->name);
+            emitLoadFromSp("t0", offset);
+        }
+    }
+
+    std::string idxReg = getValRegFromStack(inst.index, "t1");
+    ss << "  slli t1, " << idxReg << ", 2\n";
+    ss << "  add t0, t0, t1\n";
+
+    int destOffset = getStackOffset(inst.name);
+    emitStoreToSp("t0", destOffset);
 }
 };
